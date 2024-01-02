@@ -32,18 +32,20 @@ pub enum ParasectOrientation {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub struct ParasectSettings {
+pub struct ParasectSettings<TPayload>
+    where TPayload: (Fn(IBig) -> ParasectPayloadResult) + Clone + Send + Sync + 'static {
     low: IBig,
     high: IBig,
-    payload: fn(IBig) -> ParasectPayloadResult,
+    payload: TPayload,
     before_level_callback: Option<fn(&[IBig]) -> ()>,
     after_level_callback: Option<fn(&HashMap<IBig, Result<ParasectPayloadAnswer, ParasectError>>) -> ()>,
     max_parallelism: usize,
     orientation: Option<ParasectOrientation>,
 }
 
-impl ParasectSettings {
-    pub fn new(low: IBig, high: IBig, payload: fn(IBig) -> ParasectPayloadResult) -> Self {
+impl<TPayload> ParasectSettings<TPayload>
+    where TPayload: (Fn(IBig) -> ParasectPayloadResult) + Clone + Send + Sync {
+    pub fn new(low: IBig, high: IBig, payload: TPayload) -> Self {
         return ParasectSettings {
             low,
             high,
@@ -93,13 +95,13 @@ pub(crate) fn compute_parasect_indices(low: &IBig, high: &IBig, count: usize) ->
 
     let delta = high - low;
 
-    if delta <= ibig!(count) {
+    if delta <= IBig::from(count) {
         return ibig_range(low, high);
     }
 
-    let gap = &delta / count;
-    let mut remainder = usize::try_from(&delta % count)
-        .expect("this value cannot exceed count - 1, and delta must be positive, so the out of bounds condition should not happen");
+    let gap = (&delta - count) / (count + 1);
+    let mut remainder = usize::try_from((&delta - count) % (count + 1))
+        .expect("this value cannot exceed count, and delta must be positive, so the out of bounds condition should not happen");
 
     let mut ret = Vec::new();
     let mut i = low.clone();
@@ -111,6 +113,7 @@ pub(crate) fn compute_parasect_indices(low: &IBig, high: &IBig, count: usize) ->
             i += 1;
         }
         ret.push(i.clone());
+        i += 1;
     }
     ret
 }
@@ -123,13 +126,15 @@ pub(crate) fn payload_result_to_result(payload_result: ParasectPayloadResult)
     }
 }
 
-pub(crate) fn parallel_execute_payload(indices: &[IBig], payload: fn(IBig) -> ParasectPayloadResult)
+pub(crate) fn parallel_execute_payload<TPayload>(indices: &[IBig], payload: &TPayload)
                                                  -> HashMap<IBig, Result<ParasectPayloadAnswer, ParasectError>>
-{
+    where TPayload: (Fn(IBig) -> ParasectPayloadResult) + Send + Sync + Clone + 'static {
+
     let threads = indices.into_iter()
         .map(|x| {
             let xclone = x.clone();
-            (x.clone(), thread::spawn(move || payload(xclone)))
+            let payload_clone = payload.clone();
+            (x.clone(), thread::spawn(move || payload_clone(xclone)))
         });
 
     threads.map(|(n, t)| {
@@ -195,7 +200,8 @@ pub(crate) fn find_new_bounds(
     find_bounds_from_bool_list(&bool_results, original_low, original_high, orientation)
 }
 
-pub(crate) fn determine_orientation(low: IBig, high: IBig, payload: fn(IBig) -> ParasectPayloadResult) -> Result<(IBig, IBig, ParasectOrientation), ParasectError> {
+pub(crate) fn determine_orientation<TPayload>(low: IBig, high: IBig, payload: &TPayload) -> Result<(IBig, IBig, ParasectOrientation), ParasectError>
+    where TPayload: (Fn(IBig) -> ParasectPayloadResult) + Clone + Send + Sync + 'static {
     let mut bounds_result_map = parallel_execute_payload(&[low.clone(), high.clone()], payload);
 
     let low_result = bounds_result_map.remove(&low).unwrap();
@@ -211,7 +217,9 @@ pub(crate) fn determine_orientation(low: IBig, high: IBig, payload: fn(IBig) -> 
     }
 }
 
-pub fn parasect<TPayload>(settings: ParasectSettings) -> Result<IBig, ParasectError> {
+pub fn parasect<TPayload>(settings: ParasectSettings<TPayload>) -> Result<IBig, ParasectError>
+    where TPayload: (Fn(IBig) -> ParasectPayloadResult) + Clone + Send + Sync {
+
     let mut low = settings.low;
     let mut high = settings.high;
 
@@ -219,7 +227,7 @@ pub fn parasect<TPayload>(settings: ParasectSettings) -> Result<IBig, ParasectEr
         o
     } else {
         let (new_low, new_high, orientation) =
-            determine_orientation(low, high, settings.payload)?;
+            determine_orientation(low, high, &settings.payload)?;
         low = new_low;
         high = new_high;
         orientation
@@ -232,7 +240,7 @@ pub fn parasect<TPayload>(settings: ParasectSettings) -> Result<IBig, ParasectEr
             before_cb(&indices);
         }
 
-        let level_results = parallel_execute_payload(&indices, settings.payload);
+        let level_results = parallel_execute_payload(&indices, &settings.payload);
 
         if let Some(after_cb) = settings.after_level_callback {
             after_cb(&level_results);
@@ -246,10 +254,95 @@ pub fn parasect<TPayload>(settings: ParasectSettings) -> Result<IBig, ParasectEr
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::iter::zip;
+    use ibig::ops::Abs;
+    use quickcheck::*;
     use super::*;
+
+    fn ibig_vec(v: &[isize]) -> Vec<IBig> {
+        v.into_iter().map(|x| IBig::from(*x)).collect()
+    }
 
     #[test]
     fn test_ibig_range() {
-        assert_eq!(vec!(ibig!(2), ibig!(3), ibig!(4), ibig!(5)), ibig_range(&ibig!(2), &ibig!(5)))
+        assert_eq!(ibig_vec(&[2, 3, 4, 5]), ibig_range(&ibig!(2), &ibig!(5)))
+    }
+
+    #[test]
+    fn test_ibig_empty_range() {
+        assert_eq!(ibig_vec(&[]), ibig_range(&ibig!(2), &ibig!(1)))
+    }
+
+    #[quickcheck]
+    fn qc_ibig_range(lo: i16, hi: i16) -> TestResult {
+        if lo > hi {
+            return TestResult::discard();
+        }
+
+        let lo_ibig = IBig::from(lo);
+        let hi_ibig = IBig::from(hi);
+
+        let result = ibig_range(&lo_ibig, &hi_ibig);
+
+        assert_eq!(result.len(), (hi as isize - lo as isize) as usize + 1);
+        assert_eq!(result.first().unwrap(), &lo_ibig);
+        assert_eq!(result.last().unwrap(), &hi_ibig);
+
+        for (a, b) in zip(result.iter(), result.iter().skip(1)) {
+            assert_eq!(&(a + 1), b)
+        }
+
+        TestResult::passed()
+    }
+
+    #[test]
+    fn test_compute_parasect_indices() {
+        let results = compute_parasect_indices(&ibig!(2), &ibig!(22), 5);
+        assert_eq!(ibig_vec(&[5, 9, 13, 16, 19]), results)
+    }
+
+    #[test]
+    fn test_compute_parasect_indices_empty() {
+        let results = compute_parasect_indices(&ibig!(2), &ibig!(22), 0);
+        assert_eq!(ibig_vec(&[]), results)
+    }
+
+    #[test]
+    fn test_compute_parasect_indices_single() {
+        let results = compute_parasect_indices(&ibig!(2), &ibig!(22), 1);
+        assert_eq!(ibig_vec(&[12]), results)
+    }
+
+    #[quickcheck]
+    fn qc_compute_parasect_indices_gaps_even(start: i16, end: i16, count: u8) -> TestResult {
+        let start = IBig::from(start);
+        let end = IBig::from(end);
+
+        let delta = &end - &start;
+        if delta <= IBig::from(count) {
+            return TestResult::discard();
+        }
+
+        let mut gap_sizes = HashSet::<IBig>::new();
+
+        let mut vec = vec!(start.clone());
+        vec.append(&mut compute_parasect_indices(&start, &end, count as usize));
+        vec.push(end.clone());
+
+        for (a, b) in zip(vec.iter(), vec.iter().skip(1)) {
+            gap_sizes.insert(b - a);
+        }
+
+        let gap_sizes = gap_sizes.into_iter().collect::<Vec<IBig>>();
+
+        match gap_sizes.len() {
+            1 => TestResult::passed(),
+            2 => {
+                assert_eq!((gap_sizes.first().unwrap() - gap_sizes.last().unwrap()).abs(), IBig::from(1));
+                TestResult::passed()
+            }
+            _ => TestResult::failed()
+        }
     }
 }
