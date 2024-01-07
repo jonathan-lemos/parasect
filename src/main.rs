@@ -6,6 +6,7 @@ extern crate quickcheck;
 extern crate quickcheck_macros;
 
 mod algorithms;
+mod task;
 
 fn main() {
     println!("Hello, world!");
