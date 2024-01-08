@@ -1,19 +1,28 @@
-use crate::task::map_cancellable_task::{MapErrorCancellableTask, MapValueCancellableTask};
+use crate::task::map_cancellable_task::MapValueCancellableTask;
 
-pub trait CancellableTask<T, E>: Send + Sync {
+// Represents an asynchronous task that can be cancelled.
+pub trait CancellableTask<T>: Send + Sync
+where T: Send + Sync {
     // Request that the task stop as soon as possible.
-    fn request_cancellation(&self) -> Result<(), E>;
-    fn join(&self) -> Option<T>;
+    // Returns before the cancellation has happened, but any join() or join_into() calls will return soon after.
+    fn request_cancellation(&self) -> ();
 
-    fn map<R, Mapper>(self, mapper: Mapper) -> MapValueCancellableTask<T, R, E, Mapper, Self>
+    // Returns a reference to the inner value when it's generated.
+    //
+    // Blocks until the CancellableTask produces a value or is cancelled.
+    // None is returned if it's cancelled.
+    fn join(&self) -> Option<&T>;
+
+    // Returns the inner value, consuming the CancellableTask.
+    //
+    // Blocks until the CancellableTask produces a value or is cancelled.
+    // None is returned if it's cancelled.
+    fn join_into(self) -> Option<T>;
+
+    fn map<R, Mapper>(self, mapper: Mapper) -> MapValueCancellableTask<T, R, Mapper, Self>
         where Self: Sized,
               Mapper: FnOnce(T) -> R {
         MapValueCancellableTask::new(self, mapper)
     }
 
-    fn map_err<F, Mapper>(self, mapper: Mapper) -> MapErrorCancellableTask<T, E, F, Mapper, Self>
-        where Self: Sized,
-              Mapper: FnOnce(E) -> F {
-        MapErrorCancellableTask::new(self, mapper)
-    }
 }

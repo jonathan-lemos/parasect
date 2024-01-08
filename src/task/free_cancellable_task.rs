@@ -1,26 +1,41 @@
-use std::marker::PhantomData;
+use std::thread;
+use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_task::CancellableTask;
 
-pub struct FreeCancellableTask<'a, T, TPayload>
-where TPayload: FnOnce() -> T + 'a {
-    payload: TPayload,
-    lifetime_phantom: PhantomData<&'a ()>
+pub struct FreeCancellableTask<T, TPayload> {
+    msg: CancellableMessage<T>
 }
 
-impl<'a, T, TPayload> CancellableTask<T, ()> for FreeCancellableTask<'a, T, TPayload>
-    where TPayload: FnOnce() -> T + 'a {
-    fn request_cancellation(self) -> Result<(), ()> {
-        Err(())
+impl<T, TPayload> CancellableTask<T> for FreeCancellableTask<T, TPayload>
+    where TPayload: FnOnce() -> T {
+    fn request_cancellation(&self) {
+        self.msg.cancel()
     }
 
-    fn join(self) -> T {
-        (self.payload)()
+    fn join(&self) -> Option<&T> {
+        self.msg.recv()
+    }
+
+    fn join_into(self) -> Option<T> {
+        self.msg.recv_into()
     }
 }
 
-impl<'a, T, TPayload> FreeCancellableTask<'a, T, TPayload>
-    where TPayload: FnOnce() -> T + 'a {
-    pub fn new(payload: TPayload) -> Self {
-        Self { payload, lifetime_phantom: PhantomData }
+impl<T, TPayload> FreeCancellableTask<T, TPayload> {
+    pub fn new(payload: TPayload) -> Self
+        where TPayload: FnOnce() -> T {
+
+        let ret = Self {
+            msg: CancellableMessage::new()
+        };
+
+        {
+            let msg_ref = &ret.msg;
+            thread::spawn(move || {
+                msg_ref.send(payload())
+            })
+        }
+
+        ret
     }
 }

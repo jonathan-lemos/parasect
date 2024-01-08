@@ -1,14 +1,22 @@
 use std::{io, thread};
+use std::cell::Cell;
 use std::io::{Read};
-use std::thread::JoinHandle;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{Mutex, RwLock};
+use crossbeam_channel::{bounded, Receiver, Sender};
+use crate::task::cancellable_subprocess::InnerValue::*;
 use crate::task::cancellable_subprocess::SubprocessError::*;
 use crate::task::cancellable_task::CancellableTask;
+
+enum InnerValue {
+    NotFinished,
+    Finished(Option<Result<SubprocessOutput, SubprocessError>>),
+}
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SubprocessOutput {
     status: ExitStatus,
-    output: String
+    output: String,
 }
 
 #[derive(Debug)]
@@ -20,8 +28,10 @@ pub enum SubprocessError {
 }
 
 pub struct CancellableSubprocess {
-    child: Child,
-    read_stdout_thread: Option<JoinHandle<Result<String, io::Error>>>
+    child: Mutex<Child>,
+    stdout_sender: Sender<Option<Result<SubprocessOutput, SubprocessError>>>,
+    stdout_receiver: Receiver<Option<Result<SubprocessOutput, SubprocessError>>>,
+    stdout: RwLock<Cell<InnerValue>>,
 }
 
 impl CancellableSubprocess {
@@ -33,11 +43,17 @@ impl CancellableSubprocess {
             .spawn()
             .map_err(ProcessSpawnError)?;
 
-        let mut ret = CancellableSubprocess { child, read_stdout_thread: None };
+        let (sender, receiver) =
+            bounded::<Option<Result<SubprocessOutput, SubprocessError>>>(1);
+
+        let mut ret = CancellableSubprocess { child: Mutex::new(child), read_stdout_thread: None };
         ret.read_stdout_thread = Some(
             thread::spawn(|| {
                 let mut s = String::new();
-                ret.child.stdout.unwrap().read_to_string(&mut s)?;
+                let mut stdout = {
+                    ret.child.lock().unwrap().stdout.unwrap()
+                };
+                stdout.read_to_string(&mut s)?;
                 Ok(s)
             })
         );
@@ -46,15 +62,37 @@ impl CancellableSubprocess {
     }
 }
 
-impl CancellableTask<Result<SubprocessOutput, SubprocessError>, SubprocessError> for CancellableSubprocess {
-    fn request_cancellation(mut self) -> Result<(), SubprocessError> {
-        self.child.kill().map(|_| ()).map_err(StdoutReadError)
+impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableSubprocess {
+    fn request_cancellation(&self) -> () {
+        let _ = self.child.lock().unwrap().kill();
+        let _ = self.stdout_sender.try_send(None);
     }
 
-    fn join(mut self) -> Result<SubprocessOutput, SubprocessError> {
+    fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
+        {
+            let stdout_ptr = self.stdout.read().unwrap().get_mut();
+            if let Some(Finished(v)) = stdout_ptr {
+                return v.map(|x| &x);
+            }
+        }
+        {
+            let stdout_ptr = self.stdout.write().unwrap().get_mut();
+            if let Some(Finished(v)) = stdout_ptr {
+                return v.map(|x| &x);
+            }
+            let result = self.stdout_receiver.recv().unwrap();
+            *stdout_ptr = Finished(result);
+            stdout_ptr
+        }
+
+
         let stdout = self.read_stdout_thread.unwrap().join().unwrap().map_err(StdoutReadError)?;
         let status = self.child.wait().map_err(ProcessWaitError)?;
 
-        Ok(SubprocessOutput { output: stdout, status })
+        Some(Ok(SubprocessOutput { output: stdout, status }))
+    }
+
+    fn join_into(self) -> Option<Result<SubprocessOutput, SubprocessError>> {
+        todo!()
     }
 }

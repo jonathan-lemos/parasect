@@ -1,74 +1,72 @@
+use std::cell::Cell;
 use std::marker::PhantomData;
+use std::sync::Mutex;
 use crate::task::cancellable_task::CancellableTask;
+use crate::task::map_cancellable_task::InnerValue::*;
 
-pub struct MapValueCancellableTask<TOld, TNew, E, Mapper, InnerTask>
-    where Mapper: FnOnce(TOld) -> TNew,
-          InnerTask: CancellableTask<TOld, E> {
-    inner_task: InnerTask,
-    mapper: Mapper,
-    old: PhantomData<TOld>,
-    new: PhantomData<TNew>,
-    e: PhantomData<E>,
+enum InnerValue<T> {
+    NotFinishedYet,
+    Finished(T),
+    Spent
 }
 
-impl<TOld, TNew, E, Mapper, InnerTask> MapValueCancellableTask<TOld, TNew, E, Mapper, InnerTask>
+pub struct MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
     where Mapper: FnOnce(TOld) -> TNew,
-          InnerTask: CancellableTask<TOld, E> {
+          InnerTask: CancellableTask<TOld> {
+    inner_task: InnerTask,
+    inner_value: Mutex<Cell<InnerValue<TNew>>>,
+    mapper: Mutex<Cell<Option<Mapper>>>,
+    old: PhantomData<TOld>,
+    new: PhantomData<TNew>,
+}
+
+impl<TOld, TNew, Mapper, InnerTask> MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
+    where Mapper: FnOnce(TOld) -> TNew,
+          InnerTask: CancellableTask<TOld> {
     pub fn new(inner: InnerTask, mapper: Mapper) -> Self {
         Self {
             inner_task: inner,
-            mapper,
+            inner_value: Mutex::new(Cell::new(NotFinishedYet)),
+            mapper: Mutex::new(Cell::new(mapper)),
             old: PhantomData,
             new: PhantomData,
-            e: PhantomData,
         }
     }
 }
 
-impl<TOld, TNew, E, Mapper, InnerTask> CancellableTask<TNew, E> for MapValueCancellableTask<TOld, TNew, E, Mapper, InnerTask>
+impl<TOld, TNew, Mapper, InnerTask> CancellableTask<TNew> for MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
     where Mapper: FnOnce(TOld) -> TNew,
-          InnerTask: CancellableTask<TOld, E> {
-    fn request_cancellation(self) -> Result<(), E> {
+          InnerTask: CancellableTask<TOld> {
+    fn request_cancellation(&self) -> () {
         self.inner_task.request_cancellation()
     }
 
-    fn join(self) -> TNew {
-        (self.mapper)(self.inner_task.join())
-    }
-}
-
-pub struct MapErrorCancellableTask<T, EOld, ENew, Mapper, InnerTask>
-    where Mapper: FnOnce(EOld) -> ENew,
-          InnerTask: CancellableTask<T, EOld> {
-    inner_task: InnerTask,
-    mapper: Mapper,
-    old: PhantomData<EOld>,
-    new: PhantomData<ENew>,
-    t: PhantomData<T>,
-}
-
-impl<T, EOld, ENew, Mapper, InnerTask> CancellableTask<T, ENew> for MapErrorCancellableTask<T, EOld, ENew, Mapper, InnerTask>
-    where Mapper: FnOnce(EOld) -> ENew,
-          InnerTask: CancellableTask<T, EOld> {
-    fn request_cancellation(self) -> Result<(), ENew> {
-        self.inner_task.request_cancellation().map_err(self.mapper)
+    fn join(&self) -> Option<&TNew> {
+        let cell_inner = self.inner_value.lock().unwrap().get_mut();
+        match cell_inner {
+            NotFinishedYet => {
+                let mapper = self.mapper.lock().unwrap().take().unwrap();
+                *cell_inner = Finished(self.inner_task.join().map(mapper));
+                if let Finished(r) = cell_inner {
+                    Some(r)
+                } else {
+                    panic!("should never happen")
+                }
+            },
+            Finished(v) => v,
+            Spent => panic!("should never happen")
+        }
     }
 
-    fn join(self) -> T {
-        self.inner_task.join()
-    }
-}
-
-impl<T, EOld, ENew, Mapper, InnerTask> MapErrorCancellableTask<T, EOld, ENew, Mapper, InnerTask>
-    where Mapper: FnOnce(EOld) -> ENew,
-          InnerTask: CancellableTask<T, EOld> {
-    pub fn new(inner: InnerTask, mapper: Mapper) -> Self {
-        Self {
-            inner_task: inner,
-            mapper,
-            old: PhantomData,
-            new: PhantomData,
-            t: PhantomData,
+    fn join_into(self) -> Option<TNew> {
+        let cell_inner = self.inner_value.lock().unwrap().replace(Spent);
+        match cell_inner {
+            NotFinishedYet => {
+                let mapper = self.mapper.lock().unwrap().take().unwrap();
+                self.inner_task.join_into().map(mapper)
+            }
+            Finished(v) => v,
+            Spent => panic!("should never happen")
         }
     }
 }
