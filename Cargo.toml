@@ -11,6 +11,7 @@ ibig = "0.3.6"
 subprocess = "0.2.9"
 either = "1.9.0"
 crossbeam-channel = "0.5.10"
+shared_child = "1.0.0"
 
 [dev-dependencies]
 quickcheck = "1"

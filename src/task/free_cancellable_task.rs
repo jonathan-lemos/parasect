@@ -1,41 +1,37 @@
-use std::thread;
-use crate::task::cancellable_message::CancellableMessage;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::task::cancellable_task::CancellableTask;
 
-pub struct FreeCancellableTask<T, TPayload> {
-    msg: CancellableMessage<T>
+pub struct FreeCancellableTask<T: Send + Sync> {
+    value: T,
+    cancelled: AtomicBool
 }
 
-impl<T, TPayload> CancellableTask<T> for FreeCancellableTask<T, TPayload>
-    where TPayload: FnOnce() -> T {
+impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
     fn request_cancellation(&self) {
-        self.msg.cancel()
+        self.cancelled.store(true, Ordering::Release);
     }
 
     fn join(&self) -> Option<&T> {
-        self.msg.recv()
+        if self.cancelled.load(Ordering::Acquire) {
+            Some(&self.value)
+        }
+        else {
+            None
+        }
     }
 
     fn join_into(self) -> Option<T> {
-        self.msg.recv_into()
+        if self.cancelled.load(Ordering::Acquire) {
+            Some(self.value)
+        }
+        else {
+            None
+        }
     }
 }
 
-impl<T, TPayload> FreeCancellableTask<T, TPayload> {
-    pub fn new(payload: TPayload) -> Self
-        where TPayload: FnOnce() -> T {
-
-        let ret = Self {
-            msg: CancellableMessage::new()
-        };
-
-        {
-            let msg_ref = &ret.msg;
-            thread::spawn(move || {
-                msg_ref.send(payload())
-            })
-        }
-
-        ret
+impl<T: Send + Sync> FreeCancellableTask<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
     }
 }

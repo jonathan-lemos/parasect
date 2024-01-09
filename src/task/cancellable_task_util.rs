@@ -1,9 +1,6 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 use std::thread;
 use crate::task::cancellable_task::CancellableTask;
 use crate::task::cancellable_task_util::CancellationType::*;
-use crate::task::cancellable_task_util::MaybeCancelledResult::*;
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum CancellationType {
@@ -11,42 +8,33 @@ pub enum CancellationType {
     ContinueOthers
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub enum MaybeCancelledResult<T> {
-    NotCancelled(T),
-    Cancelled
-}
-
-pub fn execute_parallel_with_cancellation<T, E, TTask, I> (tasks: I) -> Vec<MaybeCancelledResult<T>>
+pub fn execute_parallel_with_cancellation<T, TTask, I> (tasks: I) -> Vec<Option<T>>
 where
-    T: Send,
-    TTask: CancellableTask<(T, CancellationType), E> + Send,
+    T: Send + Sync,
+    TTask: CancellableTask<(T, CancellationType)> + Send,
     I: Iterator<Item = TTask> {
-    let mut tasks = tasks.collect::<Vec<TTask>>();
-    let task_refs = Mutex::new(tasks.iter_mut().collect::<Vec<&mut TTask>>());
-    let cancelling = AtomicBool::new(false);
+    let tasks = tasks.collect::<Vec<TTask>>();
 
     thread::scope(|scope| {
-        let threads = tasks.into_iter().map(|task| {
+        let threads = tasks.iter().map(|task| {
             scope.spawn(|| {
-                let (val, should_cancel) = task.join();
+                let should_cancel = match task.join() {
+                    Some((_, b)) => b,
+                    None => return
+                };
 
-                if cancelling.load(Ordering::Acquire) {
-                    return Cancelled;
-                }
-
-                if should_cancel == CancelOthers {
-                    cancelling.store(true, Ordering::Release);
-                    for task_ref in task_refs.lock().unwrap().into_iter() {
-                        // todo: do something about cancellation errors?
-                        let _ = task_ref.request_cancellation();
+                if should_cancel == &CancelOthers {
+                    for task in tasks.iter() {
+                        task.request_cancellation()
                     }
                 }
-
-                NotCancelled(val)
             })
         });
 
-        threads.map(|t| t.join().unwrap()).collect()
-    })
+        for thread in threads {
+            thread.join();
+        }
+    });
+
+    tasks.into_iter().map(|x| x.join_into().map(|y| y.0)).collect()
 }

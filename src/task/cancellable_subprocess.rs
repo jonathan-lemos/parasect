@@ -1,17 +1,12 @@
 use std::{io, thread};
-use std::cell::Cell;
 use std::io::{Read};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{Mutex, RwLock};
-use crossbeam_channel::{bounded, Receiver, Sender};
-use crate::task::cancellable_subprocess::InnerValue::*;
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use shared_child::SharedChild;
+use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_subprocess::SubprocessError::*;
 use crate::task::cancellable_task::CancellableTask;
 
-enum InnerValue {
-    NotFinished,
-    Finished(Option<Result<SubprocessOutput, SubprocessError>>),
-}
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SubprocessOutput {
@@ -28,35 +23,48 @@ pub enum SubprocessError {
 }
 
 pub struct CancellableSubprocess {
-    child: Mutex<Child>,
-    stdout_sender: Sender<Option<Result<SubprocessOutput, SubprocessError>>>,
-    stdout_receiver: Receiver<Option<Result<SubprocessOutput, SubprocessError>>>,
-    stdout: RwLock<Cell<InnerValue>>,
+    child: Arc<SharedChild>,
+    msg: CancellableMessage<Result<SubprocessOutput, SubprocessError>>,
 }
 
 impl CancellableSubprocess {
     fn new(args: &[&str]) -> Result<CancellableSubprocess, SubprocessError> {
-        let mut child = Command::new(args[0])
+        let child = SharedChild::spawn(
+            &mut Command::new(args[0])
             .args(&args[1..])
             .stdout(Stdio::piped())
-            .stderr(io::stdout())
-            .spawn()
+            .stderr(io::stdout()))
             .map_err(ProcessSpawnError)?;
 
-        let (sender, receiver) =
-            bounded::<Option<Result<SubprocessOutput, SubprocessError>>>(1);
+        let ret = Self {
+            child: Arc::new(child),
+            msg: CancellableMessage::new(),
+        };
 
-        let mut ret = CancellableSubprocess { child: Mutex::new(child), read_stdout_thread: None };
-        ret.read_stdout_thread = Some(
-            thread::spawn(|| {
-                let mut s = String::new();
-                let mut stdout = {
-                    ret.child.lock().unwrap().stdout.unwrap()
+        {
+            let child_clone = ret.child.clone();
+            let msg_clone = ret.msg.clone();
+            thread::spawn(move || {
+                let mut output = String::new();
+
+                if let Err(e) = child_clone.take_stdout().unwrap().read_to_string(&mut output) {
+                    msg_clone.send(Err(StdoutReadError(e)));
+                    let _ = child_clone.kill();
+                    return;
+                }
+
+                let status = match child_clone.wait() {
+                    Err(e) => {
+                        msg_clone.send(Err(ProcessWaitError(e)));
+                        let _ = child_clone.kill();
+                        return;
+                    },
+                    Ok(v) => v
                 };
-                stdout.read_to_string(&mut s)?;
-                Ok(s)
-            })
-        );
+
+                msg_clone.send(Ok(SubprocessOutput { output, status }));
+            });
+        }
 
         Ok(ret)
     }
@@ -64,35 +72,15 @@ impl CancellableSubprocess {
 
 impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableSubprocess {
     fn request_cancellation(&self) -> () {
-        let _ = self.child.lock().unwrap().kill();
-        let _ = self.stdout_sender.try_send(None);
+        self.msg.cancel();
+        let _ = self.child.kill();
     }
 
     fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
-        {
-            let stdout_ptr = self.stdout.read().unwrap().get_mut();
-            if let Some(Finished(v)) = stdout_ptr {
-                return v.map(|x| &x);
-            }
-        }
-        {
-            let stdout_ptr = self.stdout.write().unwrap().get_mut();
-            if let Some(Finished(v)) = stdout_ptr {
-                return v.map(|x| &x);
-            }
-            let result = self.stdout_receiver.recv().unwrap();
-            *stdout_ptr = Finished(result);
-            stdout_ptr
-        }
-
-
-        let stdout = self.read_stdout_thread.unwrap().join().unwrap().map_err(StdoutReadError)?;
-        let status = self.child.wait().map_err(ProcessWaitError)?;
-
-        Some(Ok(SubprocessOutput { output: stdout, status }))
+        self.msg.recv()
     }
 
     fn join_into(self) -> Option<Result<SubprocessOutput, SubprocessError>> {
-        todo!()
+        self.msg.recv_into()
     }
 }
