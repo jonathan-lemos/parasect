@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use crate::task::map_cancellable_task::MapValueCancellableTask;
 
 /// Represents an asynchronous task that can be cancelled.
@@ -10,17 +11,11 @@ pub trait CancellableTask<T: Send + Sync>: Send + Sync {
     ///
     /// Blocks until the CancellableTask produces a value or is cancelled.
     /// None is returned if it's cancelled.
-    fn join(&self) -> Option<&T>;
+    fn join(&self) -> Option<Arc<T>>;
 
-    /// Returns the inner value, consuming the CancellableTask.
-    ///
-    /// Blocks until the CancellableTask produces a value or is cancelled.
-    /// None is returned if it's cancelled.
-    fn join_into(self) -> Option<T>;
-
-    fn map<R: Send + Sync, Mapper>(self, mapper: Mapper) -> MapValueCancellableTask<R>
+    fn map<R: Send + Sync, Mapper>(self, mapper: Mapper) -> MapValueCancellableTask<T, R, Mapper, Self>
         where Self: Sized,
-              Mapper: FnOnce(T) -> R + Send + Sync {
+              Mapper: FnOnce(Arc<T>) -> R {
         MapValueCancellableTask::new(self, mapper)
     }
 

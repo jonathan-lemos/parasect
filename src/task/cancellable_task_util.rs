@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::thread;
 use crate::task::cancellable_task::CancellableTask;
 use crate::task::cancellable_task_util::CancellationType::*;
@@ -19,11 +20,11 @@ where
         let threads = tasks.iter().map(|task| {
             scope.spawn(|| {
                 let should_cancel = match task.join() {
-                    Some((_, b)) => b,
+                    Some(arc) => arc.as_ref().1.clone(),
                     None => return
                 };
 
-                if should_cancel == &CancelOthers {
+                if should_cancel == CancelOthers {
                     for task in tasks.iter() {
                         task.request_cancellation()
                     }
@@ -32,9 +33,9 @@ where
         });
 
         for thread in threads {
-            thread.join();
+            thread.join().unwrap();
         }
     });
 
-    tasks.into_iter().map(|x| x.join_into().map(|y| y.0)).collect()
+    tasks.into_iter().map(|x| x.join().map(|y| Arc::into_inner(y).unwrap().0)).collect()
 }

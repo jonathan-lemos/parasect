@@ -76,11 +76,7 @@ impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableS
         let _ = self.child.kill();
     }
 
-    fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
+    fn join(&self) -> Option<Arc<Result<SubprocessOutput, SubprocessError>>> {
         self.msg.recv()
-    }
-
-    fn join_into(self) -> Option<Result<SubprocessOutput, SubprocessError>> {
-        self.msg.recv_into()
     }
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use num_cpus;
 use ibig::IBig;
 use crate::algorithms::parasect::ParasectError::*;
@@ -173,7 +173,7 @@ pub(crate) fn get_first_bad_index<TTask, TPayload>(indices: &[IBig], payload: &T
     let predecessors = predecessor_map(indices);
     let successors = successor_map(indices);
 
-    let is_critical_point = |x: &IBig, rm: &HashMap<IBig, ParasectPayloadResult>| -> bool {
+    let is_critical_point = |x: &IBig, rm: &HashMap<IBig, Arc<ParasectPayloadResult>>| -> bool {
         match (rm.get(x), predecessors.get(x), successors.get(x)) {
             (Some(Continue(Good)), _, Some(succ)) =>
                 rm.get(succ) == Some(&Continue(Bad)),
@@ -345,7 +345,7 @@ mod tests {
 
             get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
                 let mut ss = statuses_ref.lock().unwrap();
-                Some(ss.remove(&idx).unwrap())
+                ss.remove(&idx).unwrap()
             }))
         };
 
@@ -364,7 +364,7 @@ mod tests {
 
         let actual = get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
             let mut ss = statuses.lock().unwrap();
-            Some(ss.remove(&idx).unwrap())
+            ss.remove(&idx).unwrap()
         }));
 
         assert_eq!(Err(PayloadError("amogus".into())), actual);
@@ -382,7 +382,7 @@ mod tests {
 
         let actual = get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
             let mut ss = statuses.lock().unwrap();
-            Some(ss.remove(&idx).unwrap())
+            ss.remove(&idx).unwrap()
         }));
 
         assert_eq!(Ok(ibig(-100)), actual);
@@ -400,7 +400,7 @@ mod tests {
 
         let actual = get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
             let mut ss = statuses.lock().unwrap();
-            Some(ss.remove(&idx).unwrap())
+            ss.remove(&idx).unwrap()
         }));
 
         assert_eq!(Err(InconsistencyError("All points were good.".into())), actual);
@@ -411,7 +411,7 @@ mod tests {
         let result = parasect(
             ParasectSettings::new(ibig(1), ibig(500), |x|
                 FreeCancellableTask::new(
-                    if x < ibig(320) { Some(Continue(Good)) } else { Some(Continue(Bad)) }))
+                    if x < ibig(320) { Continue(Good) } else { Continue(Bad) }))
         );
 
         match result {
@@ -425,7 +425,7 @@ mod tests {
         let result = parasect(
             ParasectSettings::new(ibig(1), ibig(500), |x|
                 FreeCancellableTask::new(
-                    || if x < ibig(15) { Stop("error".into()) } else { Continue(Bad) }))
+                    if x < ibig(15) { Stop("error".into()) } else { Continue(Bad) }))
         );
 
         match result {
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn test_parasect_all_good() {
         let result = parasect(
-            ParasectSettings::new(ibig(1), ibig(500), |_| FreeCancellableTask::new(|| Continue(Good)))
+            ParasectSettings::new(ibig(1), ibig(500), |_| FreeCancellableTask::new(Continue(Good)))
         );
 
         assert_eq!(result, Err(InconsistencyError("All values are good.".into())));
@@ -452,7 +452,7 @@ mod tests {
         let result =
             parasect(
                 ParasectSettings::new(lo, hi, |x|
-                    FreeCancellableTask::new(|| if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) })));
+                    FreeCancellableTask::new(if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) })));
 
         match result {
             Ok(v) => TestResult::from_bool(v == IBig::from(lt)),

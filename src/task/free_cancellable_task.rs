@@ -1,8 +1,9 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::task::cancellable_task::CancellableTask;
 
 pub struct FreeCancellableTask<T: Send + Sync> {
-    value: T,
+    value: Arc<T>,
     cancelled: AtomicBool
 }
 
@@ -11,18 +12,9 @@ impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
         self.cancelled.store(true, Ordering::Release);
     }
 
-    fn join(&self) -> Option<&T> {
+    fn join(&self) -> Option<Arc<T>> {
         if self.cancelled.load(Ordering::Acquire) {
-            Some(&self.value)
-        }
-        else {
-            None
-        }
-    }
-
-    fn join_into(self) -> Option<T> {
-        if self.cancelled.load(Ordering::Acquire) {
-            Some(self.value)
+            Some(self.value.clone())
         }
         else {
             None
@@ -31,7 +23,7 @@ impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
 }
 
 impl<T: Send + Sync> FreeCancellableTask<T> {
-    pub fn new(value: T) -> Self {
-        Self { value }
+    pub fn new<ArcLike: Into<Arc<T>>>(value: ArcLike) -> Self {
+        Self { value: value.into(), cancelled: AtomicBool::new(false) }
     }
 }
