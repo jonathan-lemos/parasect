@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use num_cpus;
 use ibig::IBig;
 use crate::algorithms::parasect::ParasectError::*;
 use crate::algorithms::parasect::ParasectPayloadAnswer::*;
 use crate::algorithms::parasect::ParasectPayloadResult::*;
+use crate::algorithms::parasect_result_map::Criticality::CriticalSeen;
+use crate::algorithms::parasect_result_map::ParasectResultMap;
+use crate::collections::pred_succ::PredSucc;
 use crate::task::cancellable_task::CancellableTask;
 use crate::task::cancellable_task_util::CancellationType::*;
-use crate::task::cancellable_task_util::execute_parallel_with_cancellation;
+use crate::task::cancellable_task_util::execute_parallel_cancellable;
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Hash, Copy, Clone, Debug)]
 pub enum ParasectPayloadAnswer {
@@ -135,75 +139,30 @@ pub(crate) fn compute_parasect_indices(low: &IBig, high: &IBig, count: usize) ->
     ret
 }
 
-pub(crate) fn predecessor_map<T: Hash + PartialEq + Eq>(elements: &[T]) -> HashMap<&T, &T> {
-    elements.iter().skip(1).zip(elements.iter()).collect()
-}
-
-pub(crate) fn successor_map<T: Hash + PartialEq + Eq>(elements: &[T]) -> HashMap<&T, &T> {
-    elements.iter().zip(elements.iter().skip(1)).collect()
-}
-
-pub(crate) fn first_bad_index_from_results(results: Vec<Option<(IBig, ParasectPayloadResult, bool)>>) -> Result<IBig, ParasectError> {
-    let mut crit_pt: Option<IBig> = None;
-
-    for res in results {
-        match res {
-            Some((_, Stop(e), _)) => return Err(PayloadError(e)),
-            Some((n, Continue(_), true)) => {
-                if let Some(existing_crit_pt) = crit_pt {
-                    return Err(InconsistencyError(format!("Found two critical points at {} and {}", existing_crit_pt, n)));
-                }
-                crit_pt = Some(n);
-            }
-            _ => ()
-        };
-    }
-
-    match crit_pt {
-        Some(n) => Ok(n),
-        None => Err(InconsistencyError("All points were good.".into()))
-    }
-}
-
 pub(crate) fn get_first_bad_index<TTask, TPayload>(indices: &[IBig], payload: &TPayload)
                                                    -> Result<IBig, ParasectError>
     where TTask: CancellableTask<ParasectPayloadResult> + Send,
           TPayload: (Fn(IBig) -> TTask) + Send + Sync {
-    let result_map = Mutex::new(HashMap::<IBig, ParasectPayloadResult>::new());
-    let predecessors = predecessor_map(indices);
-    let successors = successor_map(indices);
+    let result_map = ParasectResultMap::new(indices);
 
-    let is_critical_point = |x: &IBig, rm: &HashMap<IBig, Arc<ParasectPayloadResult>>| -> bool {
-        match (rm.get(x), predecessors.get(x), successors.get(x)) {
-            (Some(Continue(Good)), _, Some(succ)) =>
-                rm.get(succ) == Some(&Continue(Bad)),
-            (Some(Continue(Bad)), Some(pred), _) =>
-                rm.get(pred) == Some(&Continue(Good)),
-            (Some(Continue(Bad)), None, _) => true,
-            _ => false
-        }
-    };
-
-    let ctask_results = execute_parallel_with_cancellation(indices.into_iter().map(|x| {
+    execute_parallel_cancellable(indices.into_iter().map(|x| {
         payload(x.clone()).map(|result| {
-            let crit_pt = {
-                let mut guard = result_map.lock().unwrap();
-                guard.insert(x.clone(), result.clone());
+            let crit_pt = result_map.add(x.clone(), (*result).clone());
 
-                is_critical_point(x, &guard)
-            };
-
-            ((x.clone(), result, crit_pt), if crit_pt { CancelOthers } else { ContinueOthers })
+            ((), if crit_pt == CriticalSeen { CancelOthers } else { ContinueOthers })
         })
     }));
 
-    first_bad_index_from_results(ctask_results)
+    result_map.critical_point()
 }
 
 pub(crate) fn get_new_bounds(low: IBig, indices: &[IBig], first_bad_index: IBig) -> (IBig, IBig) {
-    let predecessors = predecessor_map(&indices);
+    let predsucc = PredSucc::new(indices);
 
-    (predecessors.get(&first_bad_index).map(|x| (*x).clone()).unwrap_or(low), first_bad_index)
+    let low = predsucc.predecessor(&low).map(|x| x.clone()).unwrap_or(low);
+    let high = first_bad_index;
+
+    (low, high)
 }
 
 pub fn parasect<TTask, TPayload, TBeforeCb, TAfterCb>(settings: ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>)
@@ -332,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_get_first_bad_index() {
-        let indices = ibig_vec(&[-100, -69, 0, 1, 42]);
+        let indices = ibig_vec(&[-100, -69, 42, 420, 69420]);
         let statuses = Mutex::new(HashMap::from([
             (ibig(-100), Continue(Good)),
             (ibig(-69), Continue(Good)),

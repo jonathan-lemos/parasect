@@ -79,3 +79,37 @@ impl<T: Send + Sync> Clone for CancellableMessage<T> {
 
 unsafe impl<T> Send for CancellableMessage<T> where T: Send + Sync {}
 unsafe impl<T> Sync for CancellableMessage<T> where T: Send + Sync {}
+
+#[cfg(test)]
+mod tests {
+    use std::thread;
+    use super::*;
+
+    #[test]
+    fn test_send_recv() {
+        let cm = CancellableMessage::<i64>::new();
+
+        let answer = thread::scope(|scope| {
+            let result = scope.spawn(|| cm.recv());
+            scope.spawn(|| cm.send(69));
+
+            result.join().unwrap()
+        }).map(|x| (*x).clone());
+
+        assert_eq!(answer, Some(69));
+    }
+
+    #[test]
+    fn test_cancel() {
+        let cm = CancellableMessage::<i64>::new();
+
+        let answer = thread::scope(|scope| {
+            let result = scope.spawn(|| cm.recv());
+            scope.spawn(|| cm.cancel());
+
+            result.join().unwrap()
+        });
+
+        assert_eq!(answer, None);
+    }
+}

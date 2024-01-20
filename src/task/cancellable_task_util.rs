@@ -9,7 +9,10 @@ pub enum CancellationType {
     ContinueOthers
 }
 
-pub fn execute_parallel_with_cancellation<T, TTask, I> (tasks: I) -> Vec<Option<T>>
+/// Executes a sequence of tasks in parallel, cancelling any remaining tasks on request.
+///
+/// The returned CancellationType of a CancellableTask should be set to CancelOthers to cancel all remaining tasks.
+pub fn execute_parallel_cancellable<T, TTask, I> (tasks: I) -> Vec<Option<T>>
 where
     T: Send + Sync,
     TTask: CancellableTask<(T, CancellationType)> + Send,

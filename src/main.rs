@@ -7,6 +7,7 @@ extern crate quickcheck_macros;
 
 mod algorithms;
 mod task;
+mod collections;
 
 fn main() {
     println!("Hello, world!");
