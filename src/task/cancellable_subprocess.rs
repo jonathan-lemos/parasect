@@ -22,6 +22,9 @@ pub enum SubprocessError {
     ProcessWaitError(io::Error),
 }
 
+/// A subprocess that can be cancelled mid-execution.
+///
+/// Cancellation sends a SIGKILL
 pub struct CancellableSubprocess {
     child: Arc<SharedChild>,
     msg: CancellableMessage<Result<SubprocessOutput, SubprocessError>>,

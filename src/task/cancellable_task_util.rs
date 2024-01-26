@@ -42,3 +42,14 @@ where
 
     tasks.into_iter().map(|x| x.join().map(|y| Arc::into_inner(y).unwrap().0)).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::task::free_cancellable_task::FreeCancellableTask;
+
+    fn test_parallel_execute() {
+        let tasks = (0..10).into_iter().map(|i| {
+            todo!()
+        });
+    }
+}

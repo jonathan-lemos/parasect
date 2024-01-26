@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use dashmap::DashMap;
 use ibig::IBig;
 use crate::algorithms::parasect::{ParasectError, ParasectPayloadResult};

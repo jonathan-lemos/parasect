@@ -8,6 +8,9 @@ extern crate quickcheck_macros;
 mod algorithms;
 mod task;
 mod collections;
+#[cfg(test)]
+mod test_util;
+mod range;
 
 fn main() {
     println!("Hello, world!");

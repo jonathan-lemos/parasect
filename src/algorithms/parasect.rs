@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
 use num_cpus;
 use ibig::IBig;
 use crate::algorithms::parasect::ParasectError::*;
