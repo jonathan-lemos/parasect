@@ -17,3 +17,6 @@ dashmap = "5.5.3"
 [dev-dependencies]
 quickcheck = "1"
 quickcheck_macros = "1"
+
+[toolchain]
+channel = "nightly"
