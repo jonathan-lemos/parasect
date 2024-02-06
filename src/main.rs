@@ -14,6 +14,7 @@ mod collections;
 #[cfg(test)]
 mod test_util;
 mod range;
+mod util;
 
 fn main() {
     println!("Hello, world!");

@@ -55,11 +55,9 @@ impl<'a> ParasectResultMap<'a> {
         for index in self.indices {
             let (index_owned, result) = match self.results.remove(index) {
                 Some(v) => {
-                    println!("match for {}", index);
                     v
                 },
                 None => {
-                    println!("no match for {}", index);
                     continue
                 }
             };

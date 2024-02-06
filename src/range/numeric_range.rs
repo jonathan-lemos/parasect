@@ -1,8 +1,9 @@
 use std::cmp::{max, min};
-use std::fmt::{Debug, Display, Formatter, Write};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::{BitAnd, BitOr, Sub};
 use ibig::{IBig, UBig};
 use ibig::ops::Abs;
+use crate::collections::collect_vec::CollectVec;
 use crate::range::numeric_range::MaybeSplitNumericRange::*;
 
 /// A continuous range of integers.
@@ -35,40 +36,105 @@ impl Display for NumericRange {
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Hash, Debug)]
 pub enum MaybeSplitNumericRange {
+    /// A single numeric range.
     NotSplit(NumericRange),
+    /// A split numeric range.
+    ///
+    /// The range with the lower first will be on the left.
+    ///
+    /// Do not construct directly. Use MaybeSplitNumericRange::from_two() instead.
     Split(NumericRange, NumericRange),
 }
 
-impl MaybeSplitNumericRange {
-    /// Returns a vector of the non-empty ranges in `self`.
-    ///
-    /// The returned vector may have 0, 1, or 2 elements.
-    pub fn as_vec(&self) -> Vec<NumericRange> {
-        return match self {
-            Split(r1, r2) =>
-                [r1, r2].into_iter()
-                    .filter(|x| !x.is_empty())
-                    .map(|x| x.clone())
-                    .collect(),
-            NotSplit(r) =>
-                if r.is_empty() {
-                    vec!()
-                } else {
-                    vec!(r.clone())
+fn _iter_get(range: &MaybeSplitNumericRange, pos: &mut u8) -> Option<NumericRange> {
+    match range {
+        NotSplit(range) => {
+            if *pos == 0 {
+                *pos += 1;
+                Some(range.clone())
+            } else {
+                None
+            }
+        }
+        Split(r1, r2) => {
+            match *pos {
+                0 => {
+                    *pos += 1;
+                    Some(r1.clone())
                 }
-        };
+                1 => {
+                    *pos += 1;
+                    Some(r2.clone())
+                }
+                _ => None
+            }
+        }
     }
 }
 
-fn split_not_empty(a: NumericRange, b: NumericRange) -> MaybeSplitNumericRange {
-    if b.is_empty() {
-        NotSplit(a)
-    } else if a.is_empty() {
-        NotSplit(b)
-    } else if a.low < b.low {
-        Split(a, b)
-    } else {
-        Split(b, a)
+#[derive(Debug, Clone)]
+pub struct MaybeSplitNumericRangeIterator<'a> {
+    range: &'a MaybeSplitNumericRange,
+    pos: u8,
+}
+
+impl<'a> Iterator for MaybeSplitNumericRangeIterator<'a> {
+    type Item = NumericRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        _iter_get(&self.range, &mut self.pos)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedMaybeSplitNumericRangeIterator {
+    range: MaybeSplitNumericRange,
+    pos: u8,
+}
+
+impl<'a> Iterator for OwnedMaybeSplitNumericRangeIterator {
+    type Item = NumericRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        _iter_get(&self.range, &mut self.pos)
+    }
+}
+
+impl MaybeSplitNumericRange {
+    pub fn from_one(n: NumericRange) -> Self {
+        NotSplit(n)
+    }
+
+    pub fn from_two(a: NumericRange, b: NumericRange) -> Self {
+        if b.is_empty() {
+            NotSplit(a)
+        } else if a.is_empty() {
+            NotSplit(b)
+        } else if a.low < b.low {
+            Split(a, b)
+        } else {
+            Split(b, a)
+        }
+    }
+
+    /// Returns an owned iterator of the non-empty ranges in `self`.
+    ///
+    /// The returned iterator may yield 0, 1, or 2 elements.
+    pub fn into_iter(self) -> OwnedMaybeSplitNumericRangeIterator {
+        OwnedMaybeSplitNumericRangeIterator {
+            range: self,
+            pos: 0,
+        }
+    }
+
+    /// Returns a borrowed iterator of the non-empty ranges in `self`.
+    ///
+    /// The returned iterator may yield 0, 1, or 2 elements.
+    pub fn iter(&self) -> MaybeSplitNumericRangeIterator {
+        MaybeSplitNumericRangeIterator {
+            range: &self,
+            pos: 0,
+        }
     }
 }
 
@@ -103,6 +169,9 @@ impl NumericRange {
         return self.low <= range.low && range.high <= self.high;
     }
 
+    /// `true` if `self` shares no elements with `other`.
+    ///
+    /// An empty range is disjoint to any range.
     pub fn disjoint_to(&self, other: &NumericRange) -> bool {
         (self & other).is_empty()
     }
@@ -184,7 +253,7 @@ impl NumericRange {
 
     /// `true` if the range has no numbers in it.
     pub fn is_empty(&self) -> bool {
-        self.len() == IBig::from(0)
+        self.len() == UBig::from(0usize)
     }
 
     /// The last number in the range, if it's not empty.
@@ -197,8 +266,12 @@ impl NumericRange {
     }
 
     /// How many numbers there are in the range.
-    pub fn len(&self) -> IBig {
-        max(IBig::from(0), &self.high - &self.low + 1)
+    pub fn len(&self) -> UBig {
+        if self.low > self.high {
+            UBig::from(0usize)
+        } else {
+            UBig::try_from(&self.high - &self.low + 1).unwrap()
+        }
     }
 }
 
@@ -208,13 +281,14 @@ impl<'a, 'b> Sub<&'b NumericRange> for &'a NumericRange {
     /// Returns this range with the given range removed.
     ///
     /// This may return a single range, or two ranges if the removed part is in the middle.
+    /// If two ranges are returned, the first one will have the lower first value.
     fn sub(self, rhs: &'b NumericRange) -> Self::Output {
         if self.is_empty() || rhs.is_empty() || (self & rhs).is_empty() {
             return NotSplit(self.clone());
         }
 
         if self.low <= rhs.low && rhs.high <= self.high {
-            return split_not_empty(
+            return MaybeSplitNumericRange::from_two(
                 NumericRange::from_endpoints_inclusive(self.low.clone(), &rhs.low - 1),
                 NumericRange::from_endpoints_inclusive(&rhs.high + 1, self.high.clone()),
             );
@@ -236,58 +310,15 @@ impl<'a, 'b> Sub<&'b NumericRange> for &'a NumericRange {
     }
 }
 
-impl<'a> Sub<NumericRange> for &'a NumericRange {
-    type Output = MaybeSplitNumericRange;
-
-    /// Returns this range with the given range removed.
-    ///
-    /// This may return a single range, or two ranges if the removed part is in the middle.
-    fn sub(self, rhs: NumericRange) -> Self::Output {
-        self - &rhs
-    }
-}
-
-impl<'a> Sub<&'a NumericRange> for NumericRange {
-    type Output = MaybeSplitNumericRange;
-
-    /// Returns this range with the given range removed.
-    ///
-    /// This may return a single range, or two ranges if the removed part is in the middle.
-    fn sub(self, rhs: &'a NumericRange) -> Self::Output {
-        &self - rhs
-    }
-}
-
-impl Sub<NumericRange> for NumericRange {
-    type Output = MaybeSplitNumericRange;
-
-    /// Returns this range with the given range removed.
-    ///
-    /// This may return a single range, or two ranges if the removed part is in the middle.
-    fn sub(self, rhs: NumericRange) -> Self::Output {
-        &self - &rhs
-    }
-}
-
 impl<'a, I: Into<IBig>> Sub<I> for &'a NumericRange {
     type Output = MaybeSplitNumericRange;
 
     /// Returns this range with the given integer removed.
     ///
     /// This may return a single range, or two ranges if the number is removed from the middle.
+    /// If two ranges are returned, the first one will have the lower first value.
     fn sub(self, rhs: I) -> Self::Output {
-        self - NumericRange::from_point(rhs)
-    }
-}
-
-impl<I: Into<IBig>> Sub<I> for NumericRange {
-    type Output = MaybeSplitNumericRange;
-
-    /// Returns this range with the given integer removed.
-    ///
-    /// This may return a single range, or two ranges if the number is removed from the middle.
-    fn sub(self, rhs: I) -> Self::Output {
-        &self - NumericRange::from_point(rhs)
+        self - &NumericRange::from_point(rhs)
     }
 }
 
@@ -310,40 +341,19 @@ impl<'a, 'b> BitAnd<&'b NumericRange> for &'a NumericRange {
     }
 }
 
-impl<'a> BitAnd<NumericRange> for &'a NumericRange {
-    type Output = NumericRange;
-
-    /// Returns the intersection, meaning the range of numbers in common, between this range and the other.
-    fn bitand(self, rhs: NumericRange) -> Self::Output {
-        self & &rhs
-    }
-}
-
-impl<'a> BitAnd<&'a NumericRange> for NumericRange {
-    type Output = NumericRange;
-
-    /// Returns the intersection, meaning the range of numbers in common, between this range and the other.
-    fn bitand(self, rhs: &'a NumericRange) -> Self::Output {
-        &self & rhs
-    }
-}
-
-impl BitAnd<NumericRange> for NumericRange {
-    type Output = NumericRange;
-
-    /// Returns the intersection of the inputs, meaning the range of numbers in common.
-    fn bitand(self, rhs: NumericRange) -> Self::Output {
-        &self & &rhs
-    }
-}
-
 impl<'a, 'b> BitOr<&'b NumericRange> for &'a NumericRange {
     type Output = MaybeSplitNumericRange;
 
     /// Returns the union of the inputs, meaning the range/ranges of numbers in either input.
+    ///
+    /// If two ranges are returned, the first one will have the lower first value.
     fn bitor(self, rhs: &'b NumericRange) -> Self::Output {
-        if self.disjoint_to(rhs) && &self.high + 1 != rhs.low && &rhs.high + 1 != self.low {
-            split_not_empty(self.clone(), rhs.clone())
+        if self.is_empty() {
+            NotSplit(rhs.clone())
+        } else if rhs.is_empty() {
+            NotSplit(self.clone())
+        } else if self.disjoint_to(rhs) && &self.high + 1 != rhs.low && &rhs.high + 1 != self.low {
+            MaybeSplitNumericRange::from_two(self.clone(), rhs.clone())
         } else {
             NotSplit(
                 NumericRange::from_endpoints_inclusive(
@@ -355,33 +365,36 @@ impl<'a, 'b> BitOr<&'b NumericRange> for &'a NumericRange {
     }
 }
 
-impl<'a> BitOr<NumericRange> for &'a NumericRange {
-    type Output = MaybeSplitNumericRange;
+/// Given a NumericRange stream, produces an equivalent Vec sorted by first element, with empty ranges removed and overlapping ranges unioned into one.
+pub fn consolidate_range_stream<I: Iterator<Item=NumericRange>>(iterator: I) -> Vec<NumericRange> {
+    let mut non_empty_sorted = iterator.filter(|x| !x.is_empty()).collect_vec();
+    non_empty_sorted.sort();
 
-    fn bitor(self, rhs: NumericRange) -> Self::Output {
-        self | &rhs
+    let mut ret = Vec::new();
+
+    for element in non_empty_sorted {
+        match ret.pop().map(|a| &a | &element) {
+            None => ret.push(element),
+            Some(NotSplit(x)) => ret.push(x),
+            Some(Split(a, b)) => {
+                if a <= b {
+                    ret.push(a);
+                    ret.push(b);
+                } else {
+                    ret.push(b);
+                    ret.push(a);
+                }
+            }
+        }
     }
-}
 
-impl<'a> BitOr<&'a NumericRange> for NumericRange {
-    type Output = MaybeSplitNumericRange;
-
-    fn bitor(self, rhs: &'a NumericRange) -> Self::Output {
-        &self | rhs
-    }
-}
-
-impl BitOr<NumericRange> for NumericRange {
-    type Output = MaybeSplitNumericRange;
-
-    fn bitor(self, rhs: NumericRange) -> Self::Output {
-        &self | &rhs
-    }
+    ret
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test_util::test_util::test_util::ib;
+    use quickcheck::TestResult;
+    use crate::test_util::test_util::test_util::{ib, ub};
     use super::*;
 
     fn empty() -> NumericRange {
@@ -407,7 +420,7 @@ mod tests {
 
     #[quickcheck]
     fn test_contains_always_has_endpoints(a: i32, b: i32) {
-        let (a, b) = if (a < b) { (a, b) } else { (b, a) };
+        let (a, b) = if a < b { (a, b) } else { (b, a) };
         let range = r(a, b);
 
         assert!(range.contains(a));
@@ -446,9 +459,47 @@ mod tests {
     }
 
     #[test]
+    fn test_disjoint_to() {
+        assert!(r(1, 5).disjoint_to(&r(6, 10)));
+        assert!(r(1, 5).disjoint_to(&r(10, 15)));
+        assert!(!r(1, 5).disjoint_to(&r(5, 10)));
+        assert!(!r(1, 5).disjoint_to(&r(1, 5)));
+        assert!(!r(1, 5).disjoint_to(&r(2, 3)));
+        assert!(!r(1, 5).disjoint_to(&r(1, 3)));
+        assert!(!r(1, 5).disjoint_to(&r(3, 5)));
+        assert!(!r(1, 5).disjoint_to(&r(0, 2)));
+        assert!(!r(1, 5).disjoint_to(&r(0, 1)));
+        assert!(!r(1, 5).disjoint_to(&r(4, 6)));
+        assert!(!r(1, 5).disjoint_to(&r(5, 6)));
+        assert!(empty().disjoint_to(&empty()));
+    }
+
+    #[quickcheck]
+    fn test_disjoint_to_always_empty(a: i32, b: i32) {
+        assert!(r(a, b).disjoint_to(&empty()));
+    }
+
+    #[quickcheck]
+    fn test_disjoint_to_never_self_unless_empty(a: i32, b: i32) -> TestResult {
+        if a == b {
+            TestResult::discard();
+        }
+
+        let (a, b) = if a < b { (a, b) } else { (b, a) };
+        TestResult::from_bool(!r(a, b).disjoint_to(&r(a, b)))
+    }
+
+    #[quickcheck]
+    fn test_disjoint_to_never_endpoints(a: i32, b: i32) {
+        let (a, b) = if a < b { (a, b) } else { (b, a) };
+        assert!(!r(a, b).disjoint_to(&r(a, a)));
+        assert!(!r(a, b).disjoint_to(&r(b, b)));
+    }
+
+    #[test]
     fn test_empty() {
         assert!(empty().is_empty());
-        assert_eq!(empty().len(), ib(0));
+        assert_eq!(empty().len(), ub(0usize));
     }
 
     #[test]
@@ -480,7 +531,7 @@ mod tests {
     #[test]
     fn test_from_point() {
         assert_eq!(r(69, 69), NumericRange::from_point(69));
-        assert_eq!(NumericRange::from_point(69).len(), ib(1));
+        assert_eq!(NumericRange::from_point(69).len(), ub(1usize));
     }
 
     #[test]
@@ -498,14 +549,14 @@ mod tests {
 
     #[test]
     fn test_len() {
-        assert_eq!(empty().len(), ib(0));
-        assert_eq!(r(1, 10).len(), ib(10));
+        assert_eq!(empty().len(), ub(0usize));
+        assert_eq!(r(1, 10).len(), ub(10usize));
     }
 
     #[test]
     fn test_sub() {
         assert_eq!(
-            r(1, 10) - 5,
+            &r(1, 10) - 5,
             Split(
                 r(1, 4),
                 r(6, 10),
@@ -513,35 +564,35 @@ mod tests {
         );
 
         assert_eq!(
-            r(1, 10) - 0,
+            &r(1, 10) - 0,
             NotSplit(
                 r(1, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - 11,
+            &r(1, 10) - 11,
             NotSplit(
                 r(1, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - 1,
+            &r(1, 10) - 1,
             NotSplit(
                 r(2, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - 10,
+            &r(1, 10) - 10,
             NotSplit(
                 r(1, 9),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(4, 6),
+            &r(1, 10) - &r(4, 6),
             Split(
                 r(1, 3),
                 r(7, 10),
@@ -549,84 +600,84 @@ mod tests {
         );
 
         assert_eq!(
-            r(1, 10) - r(0, 5),
+            &r(1, 10) - &r(0, 5),
             NotSplit(
                 r(6, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(7, 15),
+            &r(1, 10) - &r(7, 15),
             NotSplit(
                 r(1, 6),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(-1, 15),
+            &r(1, 10) - &r(-1, 15),
             NotSplit(
                 empty(),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(1, 5),
+            &r(1, 10) - &r(1, 5),
             NotSplit(
                 r(6, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(5, 10),
+            &r(1, 10) - &r(5, 10),
             NotSplit(
                 r(1, 4),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(1, 10),
+            &r(1, 10) - &r(1, 10),
             NotSplit(
                 empty(),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(-20, -1),
+            &r(1, 10) - &r(-20, -1),
             NotSplit(
                 r(1, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(11, 15),
+            &r(1, 10) - &r(11, 15),
             NotSplit(
                 r(1, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(-10, 1),
+            &r(1, 10) - &r(-10, 1),
             NotSplit(
                 r(2, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) - r(10, 15),
+            &r(1, 10) - &r(10, 15),
             NotSplit(
                 r(1, 9),
             )
         );
 
         assert_eq!(
-            empty() - empty(),
+            &empty() - &empty(),
             NotSplit(
                 empty(),
             )
         );
 
         assert_eq!(
-            empty() - r(69, 69),
+            &empty() - &r(69, 69),
             NotSplit(
                 empty(),
             )
@@ -644,70 +695,70 @@ mod tests {
         let r1 = r(a, b);
         let r2 = r(c, d);
 
-        let _ = r1 - r2;
+        let _ = &r1 - &r2;
     }
 
     #[test]
     fn test_bitand() {
         assert_eq!(
-            r(1, 10) & r(2, 8),
+            &r(1, 10) & &r(2, 8),
             r(2, 8)
         );
 
         assert_eq!(
-            r(1, 10) & r(3, 12),
+            &r(1, 10) & &r(3, 12),
             r(3, 10)
         );
 
         assert_eq!(
-            r(1, 10) & r(-5, 4),
+            &r(1, 10) & &r(-5, 4),
             r(1, 4)
         );
 
         assert_eq!(
-            r(1, 10) & r(-5, -1),
+            &r(1, 10) & &r(-5, -1),
             empty()
         );
 
         assert_eq!(
-            r(1, 10) & r(11, 15),
+            &r(1, 10) & &r(11, 15),
             empty()
         );
 
         assert_eq!(
-            r(1, 10) & r(0, 12),
+            &r(1, 10) & &r(0, 12),
             r(1, 10)
         );
 
         assert_eq!(
-            r(1, 10) & r(1, 10),
+            &r(1, 10) & &r(1, 10),
             r(1, 10)
         );
 
         assert_eq!(
-            r(1, 10) & r(1, 5),
+            &r(1, 10) & &r(1, 5),
             r(1, 5)
         );
 
         assert_eq!(
-            r(1, 10) & r(5, 10),
+            &r(1, 10) & &r(5, 10),
             r(5, 10)
         );
 
         assert_eq!(
-            r(1, 10) & r(-1, 1),
+            &r(1, 10) & &r(-1, 1),
             r(1, 1)
         );
 
         assert_eq!(
-            r(1, 10) & r(10, 10),
+            &r(1, 10) & &r(10, 10),
             r(10, 10)
         );
     }
 
     #[quickcheck]
     fn test_bitand_empty_is_empty(a: i32, b: i32) {
-        assert_eq!(r(a, b) & empty(), empty());
+        assert_eq!(&r(a, b) & &empty(), empty());
     }
 
     #[quickcheck]
@@ -726,71 +777,71 @@ mod tests {
     #[test]
     fn test_bitor() {
         assert_eq!(
-            r(1, 10) | r(2, 8),
+            &r(1, 10) | &r(2, 8),
             NotSplit(r(1, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(3, 12),
+            &r(1, 10) | &r(3, 12),
             NotSplit(r(1, 12))
         );
 
         assert_eq!(
-            r(1, 10) | r(-5, 4),
+            &r(1, 10) | &r(-5, 4),
             NotSplit(r(-5, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(-5, -1),
+            &r(1, 10) | &r(-5, -1),
             Split(
-                r(-5, -1), r(1, 10)
+                r(-5, -1), r(1, 10),
             )
         );
 
         assert_eq!(
-            r(1, 10) | r(11, 15),
+            &r(1, 10) | &r(11, 15),
             NotSplit(r(1, 15))
         );
 
         assert_eq!(
-            r(1, 10) | r(-10, 0),
+            &r(1, 10) | &r(-10, 0),
             NotSplit(r(-10, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(0, 12),
+            &r(1, 10) | &r(0, 12),
             NotSplit(r(0, 12))
         );
 
         assert_eq!(
-            r(1, 10) | r(1, 10),
+            &r(1, 10) | &r(1, 10),
             NotSplit(r(1, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(1, 5),
+            &r(1, 10) | &r(1, 5),
             NotSplit(r(1, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(5, 10),
+            &r(1, 10) | &r(5, 10),
             NotSplit(r(1, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(-1, 1),
+            &r(1, 10) | &r(-1, 1),
             NotSplit(r(-1, 10))
         );
 
         assert_eq!(
-            r(1, 10) | r(10, 10),
+            &r(1, 10) | &r(10, 10),
             NotSplit(r(1, 10))
         );
     }
 
     #[quickcheck]
     fn test_bitor_empty_is_self(a: i32, b: i32) {
-        assert_eq!(r(a, b) | empty(), NotSplit(r(a, b)));
+        assert_eq!(&r(a, b) | &empty(), NotSplit(r(a, b)));
     }
 
     #[quickcheck]
@@ -804,5 +855,13 @@ mod tests {
         let r1 = r(a, b);
         let r2 = r(c, d);
         assert_eq!(&r1 | &r2, &r2 | &r1);
+    }
+
+    #[test]
+    fn test_consolidate_range_stream() {
+        let a = vec!(r(1, 2), r(8, 10), r(6, 12), empty(), r(3, 4), r(10, 15), r(13, 19));
+        let v = consolidate_range_stream(a.into_iter());
+
+        assert_eq!(v, vec!(r(1, 4), r(6, 19)));
     }
 }
