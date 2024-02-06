@@ -13,5 +13,4 @@ shared_child = "1.0.0"
 dashmap = "5.5.3"
 
 [dev-dependencies]
-quickcheck = "1"
-quickcheck_macros = "1"
+proptest = "1.4.0"

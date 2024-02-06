@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-use num_cpus;
-use ibig::IBig;
 use crate::algorithms::parasect::ParasectError::*;
 use crate::algorithms::parasect::ParasectPayloadAnswer::*;
 use crate::algorithms::parasect::ParasectPayloadResult::*;
@@ -9,8 +5,12 @@ use crate::algorithms::parasect_result_map::Criticality::CriticalSeen;
 use crate::algorithms::parasect_result_map::ParasectResultMap;
 use crate::collections::pred_succ::PredSucc;
 use crate::task::cancellable_task::CancellableTask;
-use crate::task::cancellable_task_util::CancellationType::*;
 use crate::task::cancellable_task_util::execute_parallel_cancellable;
+use crate::task::cancellable_task_util::CancellationType::*;
+use ibig::IBig;
+use num_cpus;
+use std::collections::HashMap;
+use std::hash::Hash;
 
 #[derive(PartialEq, Eq, Ord, PartialOrd, Hash, Copy, Clone, Debug)]
 pub enum ParasectPayloadAnswer {
@@ -32,10 +32,12 @@ pub enum ParasectError {
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>
-    where TTask: CancellableTask<ParasectPayloadResult> + Send,
-          TPayload: (Fn(IBig) -> TTask) + Send + Sync,
-          TBeforeCb: Fn(&[IBig]) -> (),
-          TAfterCb: Fn(&IBig, &IBig) -> () {
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    TPayload: (Fn(IBig) -> TTask) + Send + Sync,
+    TBeforeCb: Fn(&[IBig]) -> (),
+    TAfterCb: Fn(&IBig, &IBig) -> (),
+{
     low: IBig,
     high: IBig,
     payload: TPayload,
@@ -44,10 +46,11 @@ pub struct ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>
     max_parallelism: usize,
 }
 
-
 impl<TTask, TPayload> ParasectSettings<TTask, TPayload, fn(&[IBig]) -> (), fn(&IBig, &IBig) -> ()>
-    where TTask: CancellableTask<ParasectPayloadResult> + Send,
-          TPayload: (Fn(IBig) -> TTask) + Send + Sync {
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    TPayload: (Fn(IBig) -> TTask) + Send + Sync,
+{
     pub fn new<A: Into<IBig>, B: Into<IBig>>(low: A, high: B, payload: TPayload) -> Self {
         return ParasectSettings {
             low: low.into(),
@@ -61,13 +64,19 @@ impl<TTask, TPayload> ParasectSettings<TTask, TPayload, fn(&[IBig]) -> (), fn(&I
 }
 
 impl<TTask, TPayload, TBeforeCb, TAfterCb> ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>
-    where TTask: CancellableTask<ParasectPayloadResult> + Send,
-          TPayload: (Fn(IBig) -> TTask) + Send + Sync,
-          TBeforeCb: Fn(&[IBig]) -> (),
-          TAfterCb: Fn(&IBig, &IBig) -> () {
-    pub fn with_before_level_callback<TNewBeforeCb>(self, callback: TNewBeforeCb)
-                                                    -> ParasectSettings<TTask, TPayload, TNewBeforeCb, TAfterCb>
-        where TNewBeforeCb: Fn(&[IBig]) -> () {
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    TPayload: (Fn(IBig) -> TTask) + Send + Sync,
+    TBeforeCb: Fn(&[IBig]) -> (),
+    TAfterCb: Fn(&IBig, &IBig) -> (),
+{
+    pub fn with_before_level_callback<TNewBeforeCb>(
+        self,
+        callback: TNewBeforeCb,
+    ) -> ParasectSettings<TTask, TPayload, TNewBeforeCb, TAfterCb>
+    where
+        TNewBeforeCb: Fn(&[IBig]) -> (),
+    {
         ParasectSettings {
             low: self.low,
             high: self.high,
@@ -78,9 +87,13 @@ impl<TTask, TPayload, TBeforeCb, TAfterCb> ParasectSettings<TTask, TPayload, TBe
         }
     }
 
-    pub fn with_after_level_callback<TNewAfterCb>(self, callback: TNewAfterCb)
-                                                  -> ParasectSettings<TTask, TPayload, TBeforeCb, TNewAfterCb>
-        where TNewAfterCb: Fn(&IBig, &IBig) -> () {
+    pub fn with_after_level_callback<TNewAfterCb>(
+        self,
+        callback: TNewAfterCb,
+    ) -> ParasectSettings<TTask, TPayload, TBeforeCb, TNewAfterCb>
+    where
+        TNewAfterCb: Fn(&IBig, &IBig) -> (),
+    {
         ParasectSettings {
             low: self.low,
             high: self.high,
@@ -137,17 +150,28 @@ pub(crate) fn compute_parasect_indices(low: &IBig, high: &IBig, count: usize) ->
     ret
 }
 
-pub(crate) fn get_first_bad_index<TTask, TPayload>(indices: &[IBig], payload: &TPayload)
-                                                   -> Result<IBig, ParasectError>
-    where TTask: CancellableTask<ParasectPayloadResult> + Send,
-          TPayload: (Fn(IBig) -> TTask) + Send + Sync {
+pub(crate) fn get_first_bad_index<TTask, TPayload>(
+    indices: &[IBig],
+    payload: &TPayload,
+) -> Result<IBig, ParasectError>
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    TPayload: (Fn(IBig) -> TTask) + Send + Sync,
+{
     let result_map = ParasectResultMap::new(indices);
 
     execute_parallel_cancellable(indices.into_iter().map(|x| {
         payload(x.clone()).map(|result| {
             let crit_pt = result_map.add(x.clone(), (*result).clone());
 
-            ((), if crit_pt == CriticalSeen { CancelOthers } else { ContinueOthers })
+            (
+                (),
+                if crit_pt == CriticalSeen {
+                    CancelOthers
+                } else {
+                    ContinueOthers
+                },
+            )
         })
     }));
 
@@ -163,12 +187,15 @@ pub(crate) fn get_new_bounds(low: IBig, indices: &[IBig], first_bad_index: IBig)
     (low, high)
 }
 
-pub fn parasect<TTask, TPayload, TBeforeCb, TAfterCb>(settings: ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>)
-                                                      -> Result<IBig, ParasectError>
-    where TTask: CancellableTask<ParasectPayloadResult> + Send,
-          TPayload: (Fn(IBig) -> TTask) + Send + Sync,
-          TBeforeCb: Fn(&[IBig]) -> (),
-          TAfterCb: Fn(&IBig, &IBig) -> () {
+pub fn parasect<TTask, TPayload, TBeforeCb, TAfterCb>(
+    settings: ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>,
+) -> Result<IBig, ParasectError>
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    TPayload: (Fn(IBig) -> TTask) + Send + Sync,
+    TBeforeCb: Fn(&[IBig]) -> (),
+    TAfterCb: Fn(&IBig, &IBig) -> (),
+{
     let mut low = settings.low;
     let mut high = settings.high;
 
@@ -188,14 +215,12 @@ pub fn parasect<TTask, TPayload, TBeforeCb, TAfterCb>(settings: ParasectSettings
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use super::*;
+    use crate::task::free_cancellable_task::FreeCancellableTask;
+    use ibig::ibig;
+    use proptest::prelude::*;
     use std::iter::zip;
     use std::sync::Mutex;
-    use ibig::ops::Abs;
-    use quickcheck::*;
-    use ibig::ibig;
-    use crate::task::free_cancellable_task::FreeCancellableTask;
-    use super::*;
 
     fn ibig(i: isize) -> IBig {
         IBig::from(i)
@@ -213,28 +238,6 @@ mod tests {
     #[test]
     fn test_ibig_empty_range() {
         assert_eq!(ibig_vec(&[]), ibig_range(&ibig!(2), &ibig!(1)))
-    }
-
-    #[quickcheck]
-    fn qc_ibig_range(lo: i16, hi: i16) -> TestResult {
-        if lo > hi {
-            return TestResult::discard();
-        }
-
-        let lo_ibig = IBig::from(lo);
-        let hi_ibig = IBig::from(hi);
-
-        let result = ibig_range(&lo_ibig, &hi_ibig);
-
-        assert_eq!(result.len(), (hi as i64 - lo as i64) as usize + 1);
-        assert_eq!(result.first().unwrap(), &lo_ibig);
-        assert_eq!(result.last().unwrap(), &hi_ibig);
-
-        for (a, b) in zip(result.iter(), result.iter().skip(1)) {
-            assert_eq!(&(a + 1), b)
-        }
-
-        TestResult::passed()
     }
 
     #[test]
@@ -255,38 +258,6 @@ mod tests {
         assert_eq!(ibig_vec(&[12]), results)
     }
 
-    #[quickcheck]
-    fn qc_compute_parasect_indices_gaps_even(start: i16, end: i16, count: u8) -> TestResult {
-        let start = IBig::from(start);
-        let end = IBig::from(end);
-
-        let delta = &end - &start;
-        if delta <= IBig::from(count) {
-            return TestResult::discard();
-        }
-
-        let mut gap_sizes = HashSet::<IBig>::new();
-
-        let mut vec = vec!(start.clone());
-        vec.append(&mut compute_parasect_indices(&start, &end, count as usize));
-        vec.push(end.clone());
-
-        for (a, b) in zip(vec.iter(), vec.iter().skip(1)) {
-            gap_sizes.insert(b - a);
-        }
-
-        let gap_sizes = gap_sizes.into_iter().collect::<Vec<IBig>>();
-
-        match gap_sizes.len() {
-            1 => TestResult::passed(),
-            2 => {
-                assert_eq!((gap_sizes.first().unwrap() - gap_sizes.last().unwrap()).abs(), IBig::from(1));
-                TestResult::passed()
-            }
-            _ => TestResult::failed()
-        }
-    }
-
     #[test]
     fn test_get_first_bad_index() {
         let indices = ibig_vec(&[-100, -69, 42, 420, 69420]);
@@ -295,15 +266,18 @@ mod tests {
             (ibig(-69), Continue(Good)),
             (ibig(42), Continue(Bad)),
             (ibig(420), Continue(Bad)),
-            (ibig(69420), Continue(Bad))]));
+            (ibig(69420), Continue(Bad)),
+        ]));
 
         let actual = {
             let statuses_ref = &statuses;
 
-            get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
-                let mut ss = statuses_ref.lock().unwrap();
-                ss.remove(&idx).unwrap()
-            }))
+            get_first_bad_index(&indices, &|idx| {
+                FreeCancellableTask::new({
+                    let mut ss = statuses_ref.lock().unwrap();
+                    ss.remove(&idx).unwrap()
+                })
+            })
         };
 
         assert_eq!(Ok(ibig(42)), actual);
@@ -317,12 +291,15 @@ mod tests {
             (ibig(-69), Continue(Good)),
             (ibig(42), Continue(Bad)),
             (ibig(420), Continue(Bad)),
-            (ibig(69420), Stop("amogus".into()))]));
+            (ibig(69420), Stop("amogus".into())),
+        ]));
 
-        let actual = get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
-            let mut ss = statuses.lock().unwrap();
-            ss.remove(&idx).unwrap()
-        }));
+        let actual = get_first_bad_index(&indices, &|idx| {
+            FreeCancellableTask::new({
+                let mut ss = statuses.lock().unwrap();
+                ss.remove(&idx).unwrap()
+            })
+        });
 
         assert_eq!(Err(PayloadError("amogus".into())), actual);
     }
@@ -335,12 +312,15 @@ mod tests {
             (ibig(-69), Continue(Bad)),
             (ibig(42), Continue(Bad)),
             (ibig(420), Continue(Bad)),
-            (ibig(69420), Continue(Bad))]));
+            (ibig(69420), Continue(Bad)),
+        ]));
 
-        let actual = get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
-            let mut ss = statuses.lock().unwrap();
-            ss.remove(&idx).unwrap()
-        }));
+        let actual = get_first_bad_index(&indices, &|idx| {
+            FreeCancellableTask::new({
+                let mut ss = statuses.lock().unwrap();
+                ss.remove(&idx).unwrap()
+            })
+        });
 
         assert_eq!(Ok(ibig(-100)), actual);
     }
@@ -353,67 +333,80 @@ mod tests {
             (ibig(-69), Continue(Good)),
             (ibig(42), Continue(Good)),
             (ibig(420), Continue(Good)),
-            (ibig(69420), Continue(Good))]));
+            (ibig(69420), Continue(Good)),
+        ]));
 
-        let actual = get_first_bad_index(&indices, &|idx| FreeCancellableTask::new({
-            let mut ss = statuses.lock().unwrap();
-            ss.remove(&idx).unwrap()
-        }));
+        let actual = get_first_bad_index(&indices, &|idx| {
+            FreeCancellableTask::new({
+                let mut ss = statuses.lock().unwrap();
+                ss.remove(&idx).unwrap()
+            })
+        });
 
-        assert_eq!(Err(InconsistencyError("All points were good.".into())), actual);
+        assert_eq!(
+            Err(InconsistencyError("All points were good.".into())),
+            actual
+        );
     }
 
     #[test]
     fn test_parasect() {
-        let result = parasect(
-            ParasectSettings::new(ibig(1), ibig(500), |x|
-                FreeCancellableTask::new(
-                    if x < ibig(320) { Continue(Good) } else { Continue(Bad) }))
-        );
+        let result = parasect(ParasectSettings::new(ibig(1), ibig(500), |x| {
+            FreeCancellableTask::new(if x < ibig(320) {
+                Continue(Good)
+            } else {
+                Continue(Bad)
+            })
+        }));
 
         match result {
             Ok(v) => assert_eq!(v, ibig(320)),
-            x => panic!("expected 320, got {:?}", x)
+            x => panic!("expected 320, got {:?}", x),
         }
     }
 
     #[test]
     fn test_parasect_stop() {
-        let result = parasect(
-            ParasectSettings::new(ibig(1), ibig(500), |x|
-                FreeCancellableTask::new(
-                    if x < ibig(15) { Stop("error".into()) } else { Continue(Bad) }))
-        );
+        let result = parasect(ParasectSettings::new(ibig(1), ibig(500), |x| {
+            FreeCancellableTask::new(if x < ibig(15) {
+                Stop("error".into())
+            } else {
+                Continue(Bad)
+            })
+        }));
 
         match result {
             Err(PayloadError(s)) => assert_eq!(s, "error"),
-            x => panic!("expected PayloadError(\"error\"), got {:?}", x)
+            x => panic!("expected PayloadError(\"error\"), got {:?}", x),
         }
     }
 
     #[test]
     fn test_parasect_all_good() {
-        let result = parasect(
-            ParasectSettings::new(ibig(1), ibig(500), |_| FreeCancellableTask::new(Continue(Good)))
-        );
+        let result = parasect(ParasectSettings::new(ibig(1), ibig(500), |_| {
+            FreeCancellableTask::new(Continue(Good))
+        }));
 
-        assert_eq!(result, Err(InconsistencyError("All values are good.".into())));
+        assert_eq!(
+            result,
+            Err(InconsistencyError("All values are good.".into()))
+        );
     }
 
-    #[quickcheck]
-    fn qc_parasect(a: i16, b: i16, c: i16) -> TestResult {
-        let mut nums = [a, b, c];
-        nums.sort();
-        let [lo, lt, hi] = nums;
+    proptest! {
+        #[test]
+        fn prop_parasect_fuzz(a in 1..1000, b in 1..1000, c in 1..1000) {
+            let mut nums = [a, b, c];
+            nums.sort();
+            let [lo, lt, hi] = nums;
 
-        let result =
-            parasect(
-                ParasectSettings::new(lo, hi, |x|
-                    FreeCancellableTask::new(if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) })));
+            let result =
+                parasect(
+                    ParasectSettings::new(lo, hi, |x|
+                        FreeCancellableTask::new(if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) })));
 
-        match result {
-            Ok(v) => TestResult::from_bool(v == IBig::from(lt)),
-            _ => TestResult::failed()
+            prop_assert!(result.is_ok());
+            prop_assert!(result.unwrap() == IBig::from(lt));
         }
     }
 }

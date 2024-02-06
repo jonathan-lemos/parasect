@@ -1,10 +1,10 @@
+use crate::collections::collect_collection::CollectVec;
+use crate::range::numeric_range::MaybeSplitNumericRange::*;
+use ibig::ops::Abs;
+use ibig::{IBig, UBig};
 use std::cmp::{max, min};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{BitAnd, BitOr, Sub};
-use ibig::{IBig, UBig};
-use ibig::ops::Abs;
-use crate::collections::collect_vec::CollectVec;
-use crate::range::numeric_range::MaybeSplitNumericRange::*;
 
 /// A continuous range of integers.
 // low and high are inclusive. If low > high, then (low, high) must equal (0, -1)
@@ -19,7 +19,10 @@ impl Debug for NumericRange {
         if self.is_empty() {
             f.write_str("NumericRange::empty()")
         } else {
-            f.write_str(&format!("NumericRange::from_endpoints_inclusive({:?}, {:?})", &self.low, &self.high))
+            f.write_str(&format!(
+                "NumericRange::from_endpoints_inclusive({:?}, {:?})",
+                &self.low, &self.high
+            ))
         }
     }
 }
@@ -56,19 +59,17 @@ fn _iter_get(range: &MaybeSplitNumericRange, pos: &mut u8) -> Option<NumericRang
                 None
             }
         }
-        Split(r1, r2) => {
-            match *pos {
-                0 => {
-                    *pos += 1;
-                    Some(r1.clone())
-                }
-                1 => {
-                    *pos += 1;
-                    Some(r2.clone())
-                }
-                _ => None
+        Split(r1, r2) => match *pos {
+            0 => {
+                *pos += 1;
+                Some(r1.clone())
             }
-        }
+            1 => {
+                *pos += 1;
+                Some(r2.clone())
+            }
+            _ => None,
+        },
     }
 }
 
@@ -134,6 +135,25 @@ impl MaybeSplitNumericRange {
         MaybeSplitNumericRangeIterator {
             range: &self,
             pos: 0,
+        }
+    }
+}
+
+pub struct NumericRangeIterator {
+    range: NumericRange,
+    pos: UBig,
+}
+
+impl Iterator for NumericRangeIterator {
+    type Item = IBig;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let idx = &self.range.low + &IBig::from(&self.pos);
+        if idx > self.range.high {
+            None
+        } else {
+            self.pos += 1;
+            Some(idx)
         }
     }
 }
@@ -228,10 +248,7 @@ impl NumericRange {
         let low = num.into();
         let high = low.clone();
 
-        Self {
-            low,
-            high,
-        }
+        Self { low, high }
     }
 
     /// Makes a range of [low, low + length)
@@ -245,15 +262,20 @@ impl NumericRange {
 
         let high: IBig = &low + IBig::from(length);
 
-        Self {
-            low,
-            high,
-        }
+        Self { low, high }
     }
 
     /// `true` if the range has no numbers in it.
     pub fn is_empty(&self) -> bool {
         self.len() == UBig::from(0usize)
+    }
+
+    /// Returns an iterator yielding all integers in the range from lowest to highest.
+    pub fn iter(&self) -> NumericRangeIterator {
+        NumericRangeIterator {
+            range: self.clone(),
+            pos: UBig::from(0usize),
+        }
     }
 
     /// The last number in the range, if it's not empty.
@@ -299,11 +321,17 @@ impl<'a, 'b> Sub<&'b NumericRange> for &'a NumericRange {
         }
 
         if self.low <= rhs.low && self.high <= rhs.high {
-            return NotSplit(NumericRange::from_endpoints_inclusive(self.low.clone(), &rhs.low - 1));
+            return NotSplit(NumericRange::from_endpoints_inclusive(
+                self.low.clone(),
+                &rhs.low - 1,
+            ));
         }
 
         if rhs.low <= self.low && rhs.high <= self.high {
-            return NotSplit(NumericRange::from_endpoints_inclusive(&rhs.high + 1, self.high.clone()));
+            return NotSplit(NumericRange::from_endpoints_inclusive(
+                &rhs.high + 1,
+                self.high.clone(),
+            ));
         }
 
         panic!("should never happen")
@@ -331,7 +359,7 @@ impl<'a, 'b> BitAnd<&'b NumericRange> for &'a NumericRange {
             return NumericRange::empty();
         }
 
-        let mut points = vec!(&self.low, &self.high, &rhs.low, &rhs.high);
+        let mut points = vec![&self.low, &self.high, &rhs.low, &rhs.high];
         points.sort();
 
         NumericRange::from_endpoints_inclusive(
@@ -355,18 +383,20 @@ impl<'a, 'b> BitOr<&'b NumericRange> for &'a NumericRange {
         } else if self.disjoint_to(rhs) && &self.high + 1 != rhs.low && &rhs.high + 1 != self.low {
             MaybeSplitNumericRange::from_two(self.clone(), rhs.clone())
         } else {
-            NotSplit(
-                NumericRange::from_endpoints_inclusive(
-                    min(&self.low, &rhs.low).clone(),
-                    max(&self.high, &rhs.high).clone(),
-                )
-            )
+            NotSplit(NumericRange::from_endpoints_inclusive(
+                min(&self.low, &rhs.low).clone(),
+                max(&self.high, &rhs.high).clone(),
+            ))
         }
     }
 }
 
 /// Given a NumericRange stream, produces an equivalent Vec sorted by first element, with empty ranges removed and overlapping ranges unioned into one.
-pub fn consolidate_range_stream<I: Iterator<Item=NumericRange>>(iterator: I) -> Vec<NumericRange> {
+///
+/// The sequence produced will be the same for any input sequence spanning the same elements.
+pub fn consolidate_range_stream<I: Iterator<Item = NumericRange>>(
+    iterator: I,
+) -> Vec<NumericRange> {
     let mut non_empty_sorted = iterator.filter(|x| !x.is_empty()).collect_vec();
     non_empty_sorted.sort();
 
@@ -393,9 +423,11 @@ pub fn consolidate_range_stream<I: Iterator<Item=NumericRange>>(iterator: I) -> 
 
 #[cfg(test)]
 mod tests {
-    use quickcheck::TestResult;
-    use crate::test_util::test_util::test_util::{ib, ub};
     use super::*;
+    use crate::collections::collect_collection::CollectHashSet;
+    use crate::test_util::test_util::test_util::{ib, ub};
+    use proptest::collection::vec;
+    use proptest::prelude::*;
 
     fn empty() -> NumericRange {
         NumericRange::empty()
@@ -418,44 +450,12 @@ mod tests {
         assert!(r(69, 79).contains(79));
     }
 
-    #[quickcheck]
-    fn test_contains_always_has_endpoints(a: i32, b: i32) {
-        let (a, b) = if a < b { (a, b) } else { (b, a) };
-        let range = r(a, b);
-
-        assert!(range.contains(a));
-        assert!(range.contains(b));
-    }
-
-    #[quickcheck]
-    fn test_contains_empty_always_false(n: i32) {
-        assert!(!empty().contains(n));
-    }
-
     #[test]
     fn test_contains_range() {
         assert!(r(1, 20).contains_range(&r(5, 15)));
         assert!(!r(1, 20).contains_range(&r(0, 1)));
         assert!(!r(1, 20).contains_range(&r(-5, -2)));
         assert!(!r(1, 20).contains_range(&r(23, 25)));
-    }
-
-    #[quickcheck]
-    fn test_contains_range_contains_self(a: i32, b: i32) {
-        assert!(r(a, b).contains_range(&r(a, b)));
-    }
-
-    #[quickcheck]
-    fn test_contains_range_contains_empty(a: i32, b: i32) {
-        assert!(r(a, b).contains_range(&empty()));
-    }
-
-    #[quickcheck]
-    fn test_contains_range_contains_endpoints(a: i32, b: i32) {
-        let (a, b) = if (a < b) { (a, b) } else { (b, a) };
-
-        assert!(r(a, b).contains_range(&r(a, a)));
-        assert!(r(a, b).contains_range(&r(b, b)));
     }
 
     #[test]
@@ -474,28 +474,6 @@ mod tests {
         assert!(empty().disjoint_to(&empty()));
     }
 
-    #[quickcheck]
-    fn test_disjoint_to_always_empty(a: i32, b: i32) {
-        assert!(r(a, b).disjoint_to(&empty()));
-    }
-
-    #[quickcheck]
-    fn test_disjoint_to_never_self_unless_empty(a: i32, b: i32) -> TestResult {
-        if a == b {
-            TestResult::discard();
-        }
-
-        let (a, b) = if a < b { (a, b) } else { (b, a) };
-        TestResult::from_bool(!r(a, b).disjoint_to(&r(a, b)))
-    }
-
-    #[quickcheck]
-    fn test_disjoint_to_never_endpoints(a: i32, b: i32) {
-        let (a, b) = if a < b { (a, b) } else { (b, a) };
-        assert!(!r(a, b).disjoint_to(&r(a, a)));
-        assert!(!r(a, b).disjoint_to(&r(b, b)));
-    }
-
     #[test]
     fn test_empty() {
         assert!(empty().is_empty());
@@ -512,20 +490,47 @@ mod tests {
     fn test_from_endpoints_excluding_end() {
         assert_eq!(empty(), NumericRange::from_endpoints_excluding_end(69, 69));
         assert_eq!(empty(), NumericRange::from_endpoints_excluding_end(69, 68));
-        assert_eq!(r(69, 69), NumericRange::from_endpoints_excluding_end(69, 70));
-        assert_eq!(NumericRange::from_endpoints_excluding_end(69, 70).first(), Some(ib(69)));
-        assert_eq!(NumericRange::from_endpoints_excluding_end(69, 70).last(), Some(ib(69)));
-        assert_eq!(NumericRange::from_endpoints_excluding_end(69, 99).first(), Some(ib(69)));
-        assert_eq!(NumericRange::from_endpoints_excluding_end(69, 99).last(), Some(ib(98)));
+        assert_eq!(
+            r(69, 69),
+            NumericRange::from_endpoints_excluding_end(69, 70)
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_excluding_end(69, 70).first(),
+            Some(ib(69))
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_excluding_end(69, 70).last(),
+            Some(ib(69))
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_excluding_end(69, 99).first(),
+            Some(ib(69))
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_excluding_end(69, 99).last(),
+            Some(ib(98))
+        );
     }
 
     #[test]
     fn test_from_endpoints_inclusive() {
         assert_eq!(empty(), NumericRange::from_endpoints_inclusive(69, 68));
-        assert_eq!(NumericRange::from_endpoints_inclusive(69, 69).first(), Some(ib(69)));
-        assert_eq!(NumericRange::from_endpoints_inclusive(69, 69).last(), Some(ib(69)));
-        assert_eq!(NumericRange::from_endpoints_inclusive(69, 100).first(), Some(ib(69)));
-        assert_eq!(NumericRange::from_endpoints_inclusive(69, 100).last(), Some(ib(100)));
+        assert_eq!(
+            NumericRange::from_endpoints_inclusive(69, 69).first(),
+            Some(ib(69))
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_inclusive(69, 69).last(),
+            Some(ib(69))
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_inclusive(69, 100).first(),
+            Some(ib(69))
+        );
+        assert_eq!(
+            NumericRange::from_endpoints_inclusive(69, 100).last(),
+            Some(ib(100))
+        );
     }
 
     #[test]
@@ -542,6 +547,16 @@ mod tests {
     }
 
     #[test]
+    fn test_iter() {
+        assert_eq!(
+            r(1, 5).iter().collect_vec(),
+            vec!(ib(1), ib(2), ib(3), ib(4), ib(5))
+        );
+        assert_eq!(r(1, 1).iter().collect_vec(), vec!(ib(1)));
+        assert_eq!(empty().iter().collect_vec(), Vec::new());
+    }
+
+    #[test]
     fn test_last() {
         assert_eq!(None, empty().last());
         assert_eq!(Some(ib(99)), r(69, 99).last());
@@ -555,313 +570,282 @@ mod tests {
 
     #[test]
     fn test_sub() {
-        assert_eq!(
-            &r(1, 10) - 5,
-            Split(
-                r(1, 4),
-                r(6, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - 5, Split(r(1, 4), r(6, 10),));
 
-        assert_eq!(
-            &r(1, 10) - 0,
-            NotSplit(
-                r(1, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - 0, NotSplit(r(1, 10),));
 
-        assert_eq!(
-            &r(1, 10) - 11,
-            NotSplit(
-                r(1, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - 11, NotSplit(r(1, 10),));
 
-        assert_eq!(
-            &r(1, 10) - 1,
-            NotSplit(
-                r(2, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - 1, NotSplit(r(2, 10),));
 
-        assert_eq!(
-            &r(1, 10) - 10,
-            NotSplit(
-                r(1, 9),
-            )
-        );
+        assert_eq!(&r(1, 10) - 10, NotSplit(r(1, 9),));
 
-        assert_eq!(
-            &r(1, 10) - &r(4, 6),
-            Split(
-                r(1, 3),
-                r(7, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(4, 6), Split(r(1, 3), r(7, 10),));
 
-        assert_eq!(
-            &r(1, 10) - &r(0, 5),
-            NotSplit(
-                r(6, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(0, 5), NotSplit(r(6, 10),));
 
-        assert_eq!(
-            &r(1, 10) - &r(7, 15),
-            NotSplit(
-                r(1, 6),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(7, 15), NotSplit(r(1, 6),));
 
-        assert_eq!(
-            &r(1, 10) - &r(-1, 15),
-            NotSplit(
-                empty(),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(-1, 15), NotSplit(empty(),));
 
-        assert_eq!(
-            &r(1, 10) - &r(1, 5),
-            NotSplit(
-                r(6, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(1, 5), NotSplit(r(6, 10),));
 
-        assert_eq!(
-            &r(1, 10) - &r(5, 10),
-            NotSplit(
-                r(1, 4),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(5, 10), NotSplit(r(1, 4),));
 
-        assert_eq!(
-            &r(1, 10) - &r(1, 10),
-            NotSplit(
-                empty(),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(1, 10), NotSplit(empty(),));
 
-        assert_eq!(
-            &r(1, 10) - &r(-20, -1),
-            NotSplit(
-                r(1, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(-20, -1), NotSplit(r(1, 10),));
 
-        assert_eq!(
-            &r(1, 10) - &r(11, 15),
-            NotSplit(
-                r(1, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(11, 15), NotSplit(r(1, 10),));
 
-        assert_eq!(
-            &r(1, 10) - &r(-10, 1),
-            NotSplit(
-                r(2, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(-10, 1), NotSplit(r(2, 10),));
 
-        assert_eq!(
-            &r(1, 10) - &r(10, 15),
-            NotSplit(
-                r(1, 9),
-            )
-        );
+        assert_eq!(&r(1, 10) - &r(10, 15), NotSplit(r(1, 9),));
 
-        assert_eq!(
-            &empty() - &empty(),
-            NotSplit(
-                empty(),
-            )
-        );
+        assert_eq!(&empty() - &empty(), NotSplit(empty(),));
 
-        assert_eq!(
-            &empty() - &r(69, 69),
-            NotSplit(
-                empty(),
-            )
-        );
-    }
-
-    #[quickcheck]
-    fn test_sub_self_is_empty(a: i32, b: i32) {
-        let range = r(a, b);
-        assert_eq!(&range - &range, NotSplit(empty()));
-    }
-
-    #[quickcheck]
-    fn test_sub_does_not_panic(a: i32, b: i32, c: i32, d: i32) {
-        let r1 = r(a, b);
-        let r2 = r(c, d);
-
-        let _ = &r1 - &r2;
+        assert_eq!(&empty() - &r(69, 69), NotSplit(empty(),));
     }
 
     #[test]
     fn test_bitand() {
-        assert_eq!(
-            &r(1, 10) & &r(2, 8),
-            r(2, 8)
-        );
+        assert_eq!(&r(1, 10) & &r(2, 8), r(2, 8));
 
-        assert_eq!(
-            &r(1, 10) & &r(3, 12),
-            r(3, 10)
-        );
+        assert_eq!(&r(1, 10) & &r(3, 12), r(3, 10));
 
-        assert_eq!(
-            &r(1, 10) & &r(-5, 4),
-            r(1, 4)
-        );
+        assert_eq!(&r(1, 10) & &r(-5, 4), r(1, 4));
 
-        assert_eq!(
-            &r(1, 10) & &r(-5, -1),
-            empty()
-        );
+        assert_eq!(&r(1, 10) & &r(-5, -1), empty());
 
-        assert_eq!(
-            &r(1, 10) & &r(11, 15),
-            empty()
-        );
+        assert_eq!(&r(1, 10) & &r(11, 15), empty());
 
-        assert_eq!(
-            &r(1, 10) & &r(0, 12),
-            r(1, 10)
-        );
+        assert_eq!(&r(1, 10) & &r(0, 12), r(1, 10));
 
-        assert_eq!(
-            &r(1, 10) & &r(1, 10),
-            r(1, 10)
-        );
+        assert_eq!(&r(1, 10) & &r(1, 10), r(1, 10));
 
-        assert_eq!(
-            &r(1, 10) & &r(1, 5),
-            r(1, 5)
-        );
+        assert_eq!(&r(1, 10) & &r(1, 5), r(1, 5));
 
-        assert_eq!(
-            &r(1, 10) & &r(5, 10),
-            r(5, 10)
-        );
+        assert_eq!(&r(1, 10) & &r(5, 10), r(5, 10));
 
-        assert_eq!(
-            &r(1, 10) & &r(-1, 1),
-            r(1, 1)
-        );
+        assert_eq!(&r(1, 10) & &r(-1, 1), r(1, 1));
 
-        assert_eq!(
-            &r(1, 10) & &r(10, 10),
-            r(10, 10)
-        );
-    }
-
-    #[quickcheck]
-    fn test_bitand_empty_is_empty(a: i32, b: i32) {
-        assert_eq!(&r(a, b) & &empty(), empty());
-    }
-
-    #[quickcheck]
-    fn test_bitand_self_is_self(a: i32, b: i32) {
-        let range = r(a, b);
-        assert_eq!(&range & &range, range);
-    }
-
-    #[quickcheck]
-    fn test_bitand_commutative(a: i32, b: i32, c: i32, d: i32) {
-        let r1 = r(a, b);
-        let r2 = r(c, d);
-        assert_eq!(&r1 & &r2, &r2 & &r1);
+        assert_eq!(&r(1, 10) & &r(10, 10), r(10, 10));
     }
 
     #[test]
     fn test_bitor() {
-        assert_eq!(
-            &r(1, 10) | &r(2, 8),
-            NotSplit(r(1, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(2, 8), NotSplit(r(1, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(3, 12),
-            NotSplit(r(1, 12))
-        );
+        assert_eq!(&r(1, 10) | &r(3, 12), NotSplit(r(1, 12)));
 
-        assert_eq!(
-            &r(1, 10) | &r(-5, 4),
-            NotSplit(r(-5, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(-5, 4), NotSplit(r(-5, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(-5, -1),
-            Split(
-                r(-5, -1), r(1, 10),
-            )
-        );
+        assert_eq!(&r(1, 10) | &r(-5, -1), Split(r(-5, -1), r(1, 10),));
 
-        assert_eq!(
-            &r(1, 10) | &r(11, 15),
-            NotSplit(r(1, 15))
-        );
+        assert_eq!(&r(1, 10) | &r(11, 15), NotSplit(r(1, 15)));
 
-        assert_eq!(
-            &r(1, 10) | &r(-10, 0),
-            NotSplit(r(-10, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(-10, 0), NotSplit(r(-10, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(0, 12),
-            NotSplit(r(0, 12))
-        );
+        assert_eq!(&r(1, 10) | &r(0, 12), NotSplit(r(0, 12)));
 
-        assert_eq!(
-            &r(1, 10) | &r(1, 10),
-            NotSplit(r(1, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(1, 10), NotSplit(r(1, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(1, 5),
-            NotSplit(r(1, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(1, 5), NotSplit(r(1, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(5, 10),
-            NotSplit(r(1, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(5, 10), NotSplit(r(1, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(-1, 1),
-            NotSplit(r(-1, 10))
-        );
+        assert_eq!(&r(1, 10) | &r(-1, 1), NotSplit(r(-1, 10)));
 
-        assert_eq!(
-            &r(1, 10) | &r(10, 10),
-            NotSplit(r(1, 10))
-        );
-    }
-
-    #[quickcheck]
-    fn test_bitor_empty_is_self(a: i32, b: i32) {
-        assert_eq!(&r(a, b) | &empty(), NotSplit(r(a, b)));
-    }
-
-    #[quickcheck]
-    fn test_bitor_self_is_self(a: i32, b: i32) {
-        let range = r(a, b);
-        assert_eq!(&range | &range, NotSplit(range));
-    }
-
-    #[quickcheck]
-    fn test_bitor_commutative(a: i32, b: i32, c: i32, d: i32) {
-        let r1 = r(a, b);
-        let r2 = r(c, d);
-        assert_eq!(&r1 | &r2, &r2 | &r1);
+        assert_eq!(&r(1, 10) | &r(10, 10), NotSplit(r(1, 10)));
     }
 
     #[test]
     fn test_consolidate_range_stream() {
-        let a = vec!(r(1, 2), r(8, 10), r(6, 12), empty(), r(3, 4), r(10, 15), r(13, 19));
+        let a = vec![
+            r(1, 2),
+            r(8, 10),
+            r(6, 12),
+            empty(),
+            r(3, 4),
+            r(10, 15),
+            r(13, 19),
+        ];
         let v = consolidate_range_stream(a.into_iter());
 
         assert_eq!(v, vec!(r(1, 4), r(6, 19)));
+    }
+
+    proptest! {
+        #[test]
+        fn test_contains_always_has_endpoints(a in 1i32..1000, b in 1i32..1000) {
+            prop_assume!(a <= b);
+
+            prop_assert!(r(a, b).contains(a));
+            prop_assert!(r(a, b).contains(b));
+        }
+
+        #[test]
+        fn test_contains_matches_iter(a in 1i32..1000, b in 1i32..1000, c in 1i32..1000) {
+            prop_assume!(a <= b);
+
+            prop_assert_eq!(r(a, b).contains(c), r(a, b).iter().any(|x| x == IBig::from(c)));
+        }
+
+        #[test]
+        fn test_contains_empty_always_false(n in 1..1000) {
+            prop_assert!(!empty().contains(n));
+        }
+
+        #[test]
+        fn test_contains_range_contains_self(a in 1..1000, b in 1..1000) {
+            prop_assert!(r(a, b).contains_range(&r(a, b)));
+        }
+
+        #[test]
+        fn test_contains_range_contains_empty(a in 1..1000, b in 1..1000) {
+            prop_assert!(r(a, b).contains_range(&empty()));
+        }
+
+        #[test]
+        fn test_contains_range_contains_endpoints(a in 1..1000, b in 1..1000) {
+            prop_assume!(a <= b);
+
+            prop_assert!(r(a, b).contains_range(&r(a, a)));
+            prop_assert!(r(a, b).contains_range(&r(b, b)));
+        }
+
+        #[test]
+        fn test_contains_range_matches_iter(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            prop_assume!(a <= b);
+            prop_assume!(c <= d);
+
+            let ab_set = r(a, b).iter().collect_hashset();
+
+            prop_assert_eq!(r(a, b).contains_range(&r(c, d)), r(c, d).iter().all(|x| ab_set.contains(&x)));
+        }
+
+        #[test]
+        fn test_disjoint_to_always_empty(a in 1..1000, b in 1..1000) {
+            prop_assert!(r(a, b).disjoint_to(&empty()));
+        }
+
+        #[test]
+        fn test_disjoint_to_never_self_unless_empty(a in 1..1000, b in 1..1000) {
+            prop_assume!(a != b);
+
+            let (a, b) = if a < b { (a, b) } else { (b, a) };
+            prop_assert!(!r(a, b).disjoint_to(&r(a, b)))
+        }
+
+        #[test]
+        fn test_disjoint_to_never_endpoints(a in 1..1000, b in 1..1000) {
+            let (a, b) = if a < b { (a, b) } else { (b, a) };
+            prop_assert!(!r(a, b).disjoint_to(&r(a, a)));
+            prop_assert!(!r(a, b).disjoint_to(&r(b, b)));
+        }
+
+        #[test]
+        fn test_disjoint_to_matches_iter(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            prop_assume!(a <= b);
+            prop_assume!(c <= d);
+
+            let ab_set = r(a, b).iter().collect_hashset();
+
+            prop_assert_eq!(r(a, b).disjoint_to(&r(c, d)), r(c, d).iter().all(|x| !ab_set.contains(&x)));
+        }
+
+        #[test]
+        fn test_sub_self_is_empty(a in 1..1000, b in 1..1000) {
+            let range = r(a, b);
+            prop_assert_eq!(&range - &range, NotSplit(empty()));
+        }
+
+        #[test]
+        fn test_sub_does_not_panic(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            let r1 = r(a, b);
+            let r2 = r(c, d);
+
+            let _ = &r1 - &r2;
+        }
+
+        #[test]
+        fn test_sub_same_nums(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            prop_assume!(a <= b);
+            prop_assume!(c <= d);
+
+            prop_assert_eq!(
+                (&r(a, b) - &r(c, d)).iter().flat_map(|x| x.iter()).collect_hashset(),
+                &r(a, b).iter().collect_hashset() - &r(c, d).iter().collect_hashset()
+            );
+        }
+
+        #[test]
+        fn test_bitand_empty_is_empty(a in 1..1000, b in 1..1000) {
+            prop_assert_eq!(&r(a, b) & &empty(), empty());
+        }
+
+        #[test]
+        fn test_bitand_self_is_self(a in 1..1000, b in 1..1000) {
+            let range = r(a, b);
+            prop_assert_eq!(&range & &range, range);
+        }
+
+        #[test]
+        fn test_bitand_commutative(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            let r1 = r(a, b);
+            let r2 = r(c, d);
+            prop_assert_eq!(&r1 & &r2, &r2 & &r1);
+        }
+
+        #[test]
+        fn test_bitand_same_nums(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            prop_assume!(a <= b);
+            prop_assume!(c <= d);
+
+            prop_assert_eq!(
+                (&r(a, b) & &r(c, d)).iter().collect_hashset(),
+                &r(a, b).iter().collect_hashset() & &r(c, d).iter().collect_hashset()
+            );
+        }
+
+        #[test]
+        fn test_bitor_empty_is_self(a in 1..1000, b in 1..1000) {
+            prop_assert_eq!(&r(a, b) | &empty(), NotSplit(r(a, b)));
+        }
+
+        #[test]
+        fn test_bitor_self_is_self(a in 1..1000, b in 1..1000) {
+            let range = r(a, b);
+            prop_assert_eq!(&range | &range, NotSplit(range));
+        }
+
+        #[test]
+        fn test_bitor_commutative(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            let r1 = r(a, b);
+            let r2 = r(c, d);
+            prop_assert_eq!(&r1 | &r2, &r2 | &r1);
+        }
+
+        #[test]
+        fn test_bitor_same_nums(a in 1..1000, b in 1..1000, c in 1..1000, d in 1..1000) {
+            prop_assume!(a <= b);
+            prop_assume!(c <= d);
+
+            prop_assert_eq!(
+                (&r(a, b) | &r(c, d)).iter().flat_map(|x| x.iter()).collect_hashset(),
+                &r(a, b).iter().collect_hashset() | &r(c, d).iter().collect_hashset()
+            );
+        }
+
+        #[test]
+        fn test_consolidate_range_stream_has_same_nums(a in vec((1..1000, 1..1000), 1..100)) {
+            let mut ranges_base = a.into_iter().map(|(a, b)| r(a, b)).collect_vec();
+            let ranges_consolidated = consolidate_range_stream(ranges_base.clone().into_iter());
+
+            let base_nums = ranges_base.into_iter().flat_map(|x| x.iter()).collect_hashset();
+            let consolidated_nums = ranges_consolidated.into_iter().flat_map(|x| x.iter()).collect_hashset();
+
+            prop_assert_eq!(base_nums, consolidated_nums);
+        }
     }
 }
