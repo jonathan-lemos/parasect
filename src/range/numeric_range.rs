@@ -1,6 +1,5 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::range::numeric_range::MaybeSplitNumericRange::*;
-use ibig::ops::Abs;
 use ibig::{IBig, UBig};
 use std::cmp::{max, min};
 use std::fmt::{Debug, Display, Formatter};
@@ -675,6 +674,34 @@ mod tests {
         assert_eq!(v, vec!(r(1, 4), r(6, 19)));
     }
 
+    #[test]
+    fn test_maybe_spliterator_notsplit() {
+        let ns = NotSplit(r(1, 5));
+
+        assert_eq!(ns.iter().collect_vec(), vec!(r(1, 5)));
+    }
+
+    #[test]
+    fn test_maybe_spliterator_split() {
+        let ns = Split(r(1, 5), r(6, 10));
+
+        assert_eq!(ns.iter().collect_vec(), vec!(r(1, 5), r(6, 10)));
+    }
+
+    #[test]
+    fn test_maybe_spliterator_owned_notsplit() {
+        let ns = NotSplit(r(1, 5));
+
+        assert_eq!(ns.into_iter().collect_vec(), vec!(r(1, 5)));
+    }
+
+    #[test]
+    fn test_maybe_spliterator_owned_split() {
+        let ns = Split(r(1, 5), r(6, 10));
+
+        assert_eq!(ns.into_iter().collect_vec(), vec!(r(1, 5), r(6, 10)));
+    }
+
     proptest! {
         #[test]
         fn test_contains_always_has_endpoints(a in 1i32..1000, b in 1i32..1000) {
@@ -839,7 +866,7 @@ mod tests {
 
         #[test]
         fn test_consolidate_range_stream_has_same_nums(a in vec((1..1000, 1..1000), 1..100)) {
-            let mut ranges_base = a.into_iter().map(|(a, b)| r(a, b)).collect_vec();
+            let ranges_base = a.into_iter().map(|(a, b)| r(a, b)).collect_vec();
             let ranges_consolidated = consolidate_range_stream(ranges_base.clone().into_iter());
 
             let base_nums = ranges_base.into_iter().flat_map(|x| x.iter()).collect_hashset();

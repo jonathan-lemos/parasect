@@ -1,12 +1,11 @@
-use std::{io, thread};
-use std::io::{Read};
-use std::process::{Command, ExitStatus, Stdio};
-use std::sync::Arc;
-use shared_child::SharedChild;
 use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_subprocess::SubprocessError::*;
 use crate::task::cancellable_task::CancellableTask;
-
+use shared_child::SharedChild;
+use std::io::Read;
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::{io, thread};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SubprocessOutput {
@@ -15,6 +14,7 @@ pub struct SubprocessOutput {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub enum SubprocessError {
     ProcessSpawnError(io::Error),
     StdoutReadError(io::Error),
@@ -30,14 +30,16 @@ pub struct CancellableSubprocess {
     msg: CancellableMessage<Result<SubprocessOutput, SubprocessError>>,
 }
 
+#[allow(unused)]
 impl CancellableSubprocess {
     fn new(args: &[&str]) -> Result<CancellableSubprocess, SubprocessError> {
         let child = SharedChild::spawn(
             &mut Command::new(args[0])
-            .args(&args[1..])
-            .stdout(Stdio::piped())
-            .stderr(io::stdout()))
-            .map_err(ProcessSpawnError)?;
+                .args(&args[1..])
+                .stdout(Stdio::piped())
+                .stderr(io::stdout()),
+        )
+        .map_err(ProcessSpawnError)?;
 
         let ret = Self {
             child: Arc::new(child),
@@ -50,7 +52,11 @@ impl CancellableSubprocess {
             thread::spawn(move || {
                 let mut output = String::new();
 
-                if let Err(e) = child_clone.take_stdout().unwrap().read_to_string(&mut output) {
+                if let Err(e) = child_clone
+                    .take_stdout()
+                    .unwrap()
+                    .read_to_string(&mut output)
+                {
                     msg_clone.send(Err(StdoutReadError(e)));
                     let _ = child_clone.kill();
                     return;
@@ -61,8 +67,8 @@ impl CancellableSubprocess {
                         msg_clone.send(Err(ProcessWaitError(e)));
                         let _ = child_clone.kill();
                         return;
-                    },
-                    Ok(v) => v
+                    }
+                    Ok(v) => v,
                 };
 
                 msg_clone.send(Ok(SubprocessOutput { output, status }));

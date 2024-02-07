@@ -18,6 +18,7 @@ pub struct NumericRangeSet {
     count: UBig,
 }
 
+#[allow(unused)]
 impl NumericRangeSet {
     pub fn new() -> Self {
         Self {
@@ -34,7 +35,7 @@ impl NumericRangeSet {
     ///     * 0 new elements  -> between the two elements after the processed gap.
     fn apply_binary_shrinker<I, F>(
         cursor_mut: &mut CursorMut<IBig, NumericRange>,
-        mut count_mut: &mut UBig,
+        count_mut: &mut UBig,
         ap: F,
     ) where
         I: Iterator<Item = NumericRange>,
@@ -70,7 +71,7 @@ impl NumericRangeSet {
                 panic!("Operator applied to apply_shrinker was expected to shrink ranges, but {} is not within {} | {}.", range, prev, next);
             }
 
-            let first = unwrap_or!(range.first(), continue);
+            let first = range.first().unwrap();
             *count_mut += range.len();
             cursor_mut.insert_after(first, range).unwrap();
         }
@@ -102,7 +103,7 @@ impl NumericRangeSet {
                     cursor.next();
                 }
                 (_, None) => return,
-                (Some(a), Some(b)) => {
+                (Some(a), Some(_)) => {
                     let (a_low, a_high) = unwrap_or!(a.as_tuple(), {
                         cursor.next();
                         continue;
@@ -150,11 +151,14 @@ impl NumericRangeSet {
     /// `true` if any range in the NumericRangeSet contains the given number.
     pub fn contains<N: Into<IBig>>(&self, n: N) -> bool {
         let n = n.into();
-        self.contains_range(NumericRange::from_endpoints_inclusive(n.clone(), n.clone()))
+        self.contains_range(&NumericRange::from_endpoints_inclusive(
+            n.clone(),
+            n.clone(),
+        ))
     }
 
     /// `true` if any range in the NumericRangeSet includes each number in the given range.
-    pub fn contains_range(&self, range: NumericRange) -> bool {
+    pub fn contains_range(&self, range: &NumericRange) -> bool {
         let first = unwrap_or!(range.first(), return false);
         let cursor = self.range_starts.upper_bound(Included(&first));
 
@@ -240,8 +244,11 @@ impl NumericRangeSet {
 
 mod tests {
     use super::*;
+    use crate::collections::collect_collection::CollectHashSet;
+    use crate::test_util::test_util::test_util::{ib, ub};
     use proptest::collection::vec;
     use proptest::prelude::*;
+    use std::collections::HashSet;
 
     fn empty() -> NumericRange {
         NumericRange::empty()
@@ -258,7 +265,7 @@ mod tests {
             .collect_vec()
     }
 
-    fn kvs(a: &[(NumericRange)]) -> Vec<(IBig, NumericRange)> {
+    fn kvs(a: &[NumericRange]) -> Vec<(IBig, NumericRange)> {
         a.into_iter()
             .map(|x| (x.first().unwrap(), x.clone()))
             .collect_vec()
@@ -385,6 +392,141 @@ mod tests {
         assert_eq!(as_vec(&s), kvs(&[r(1, 2), r(10, 10)]));
     }
 
+    #[test]
+    fn test_remove_range_split_2() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(1, 10));
+        s.add(r(15, 20));
+        s.remove(&r(5, 18));
+
+        assert_invariants(&s);
+        assert_eq!(as_vec(&s), kvs(&[r(1, 4), r(19, 20)]));
+    }
+
+    #[test]
+    fn test_remove_range_split_3() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(-6, -3));
+        s.add(r(1, 10));
+        s.add(r(15, 20));
+        s.add(r(25, 30));
+        s.remove(&r(5, 18));
+
+        assert_invariants(&s);
+        assert_eq!(as_vec(&s), kvs(&[r(-6, -3), r(1, 4), r(19, 20), r(25, 30)]));
+    }
+
+    #[test]
+    fn test_remove_range_consolidate_1() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(-6, -3));
+        s.add(r(1, 10));
+        s.add(r(15, 20));
+        s.add(r(25, 30));
+        s.remove(&r(0, 21));
+
+        assert_invariants(&s);
+        assert_eq!(as_vec(&s), kvs(&[r(-6, -3), r(25, 30)]));
+    }
+
+    #[test]
+    fn test_remove_range_consolidate_2() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(-6, -3));
+        s.add(r(1, 10));
+        s.add(r(15, 20));
+        s.add(r(25, 30));
+        s.remove(&r(1, 20));
+
+        assert_invariants(&s);
+        assert_eq!(as_vec(&s), kvs(&[r(-6, -3), r(25, 30)]));
+    }
+
+    #[test]
+    fn test_remove_range_consolidate_3() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(-6, -3));
+        s.add(r(1, 10));
+        s.add(r(15, 20));
+        s.add(r(25, 30));
+        s.remove(&r(5, 21));
+
+        assert_invariants(&s);
+        assert_eq!(as_vec(&s), kvs(&[r(-6, -3), r(1, 4), r(25, 30)]));
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(1, 3));
+        s.add(r(5, 9));
+
+        assert!(s.contains(1));
+        assert!(s.contains(2));
+        assert!(s.contains(3));
+        assert!(s.contains(5));
+        assert!(s.contains(7));
+        assert!(s.contains(9));
+        assert!(!s.contains(0));
+        assert!(!s.contains(4));
+        assert!(!s.contains(10));
+    }
+
+    #[test]
+    fn test_contains_range() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(0, 10));
+        s.add(r(20, 30));
+
+        assert!(s.contains_range(&r(1, 9)));
+        assert!(s.contains_range(&r(1, 10)));
+        assert!(s.contains_range(&r(0, 10)));
+        assert!(s.contains_range(&r(0, 9)));
+
+        assert!(s.contains_range(&r(21, 29)));
+        assert!(s.contains_range(&r(20, 30)));
+        assert!(s.contains_range(&r(21, 30)));
+        assert!(s.contains_range(&r(20, 29)));
+
+        assert!(!s.contains_range(&r(-5, -3)));
+        assert!(!s.contains_range(&r(-5, 5)));
+        assert!(!s.contains_range(&r(5, 11)));
+        assert!(!s.contains_range(&r(13, 15)));
+        assert!(!s.contains_range(&r(17, 22)));
+        assert!(!s.contains_range(&r(17, 30)));
+
+        assert!(!s.contains_range(&r(17, 31)));
+        assert!(!s.contains_range(&r(-1, 11)));
+        assert!(!s.contains_range(&r(-1, 31)));
+    }
+
+    #[test]
+    fn test_max() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(0, 10));
+        s.add(r(20, 30));
+
+        assert_eq!(s.max(), Some(ib(30)));
+    }
+
+    #[test]
+    fn test_min() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(0, 10));
+        s.add(r(20, 30));
+
+        assert_eq!(s.min(), Some(ib(0)));
+    }
+
+    #[test]
+    fn test_span() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(5, 10));
+        s.add(r(20, 30));
+
+        assert_eq!(s.span(), Some(ub(25usize)));
+    }
+
     proptest! {
         #[test]
         fn fuzz_add_many(seq in vec((1..1000, 1..1000), 1..100)) {
@@ -404,6 +546,32 @@ mod tests {
             prop_assert_eq!(
                 as_vec(&s),
                 kvs(&consolidate_range_stream(ranges.into_iter()))
+            );
+        }
+
+        #[test]
+        fn fuzz_add_remove(seq in vec((1..1000, 1..1000, proptest::bool::ANY), 1..100)) {
+            let mut s = NumericRangeSet::new();
+            let mut hs = HashSet::new();
+
+            for (a, b, remove) in seq {
+                if remove {
+                    s.remove(&r(a, b));
+                    for num in r(a, b).iter() {
+                        hs.remove(&num);
+                    }
+                } else {
+                    s.add(r(a, b));
+                    for num in r(a, b).iter() {
+                        hs.insert(num);
+                    }
+                }
+            }
+
+            assert_invariants(&s);
+            prop_assert_eq!(
+                as_vec(&s).iter().flat_map(|x| x.1.iter()).collect_hashset(),
+                hs
             );
         }
     }

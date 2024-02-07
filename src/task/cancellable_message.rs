@@ -1,8 +1,7 @@
+use crate::task::cancellable_task::CancellableTask;
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::cell::OnceCell;
 use std::sync::{Arc, RwLock};
-use crossbeam_channel::{bounded, Receiver, Sender};
-use crate::task::cancellable_task::CancellableTask;
-
 
 /// Asynchronously sends a single T that may be cancelled.
 ///
@@ -21,7 +20,7 @@ impl<T: Send + Sync> CancellableMessage<T> {
         Self {
             sender,
             receiver,
-            inner_value: Arc::new(RwLock::new(OnceCell::new()))
+            inner_value: Arc::new(RwLock::new(OnceCell::new())),
         }
     }
 
@@ -74,7 +73,6 @@ impl<T: Send + Sync> CancellableMessage<T> {
 
             panic!("should never happen")
         }
-
     }
 }
 
@@ -83,7 +81,7 @@ impl<T: Send + Sync> Clone for CancellableMessage<T> {
         Self {
             sender: self.sender.clone(),
             receiver: self.receiver.clone(),
-            inner_value: self.inner_value.clone()
+            inner_value: self.inner_value.clone(),
         }
     }
 }
@@ -105,12 +103,11 @@ unsafe impl<T> Sync for CancellableMessage<T> where T: Send + Sync {}
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
-    use std::thread::Scope;
-    use crate::task::cancellable_task::CancellableTask;
     use super::*;
+    use crate::assert_result_eq;
     use crate::task::test_util::test_util::*;
     use crate::test_util::test_util::test_util::detect_flake;
+    use std::thread;
 
     #[test]
     fn test_send_recv() {
@@ -123,7 +120,7 @@ mod tests {
             result.join().unwrap()
         });
 
-        assert_result_eq(answer, 69);
+        assert_result_eq!(answer, 69);
     }
 
     #[test]
@@ -144,8 +141,8 @@ mod tests {
             result.join().unwrap()
         });
 
-        assert_result_eq(answer1, 69);
-        assert_result_eq(answer2, 69);
+        assert_result_eq!(answer1, 69);
+        assert_result_eq!(answer2, 69);
     }
 
     #[test]
@@ -248,7 +245,12 @@ mod tests {
                     scope.spawn(|| cm.send(69));
                     scope.spawn(|| cm.send(69));
 
-                    (a1.join().unwrap(), a2.join().unwrap(), a3.join().unwrap(), a4.join().unwrap())
+                    (
+                        a1.join().unwrap(),
+                        a2.join().unwrap(),
+                        a3.join().unwrap(),
+                        a4.join().unwrap(),
+                    )
                 })
             };
 
@@ -257,5 +259,27 @@ mod tests {
             assert_eq!(answer3, answer4);
             assert_eq!(answer1, Some(Arc::new(69)));
         })
+    }
+
+    #[test]
+    fn test_clone() {
+        let cm = CancellableMessage::new();
+        let cm2 = cm.clone();
+
+        cm2.send(69);
+
+        assert_result_eq!(cm2.recv(), 69);
+        assert_eq!(cm.recv(), cm2.recv());
+    }
+
+    #[test]
+    fn test_clone_2() {
+        let cm = CancellableMessage::new();
+        let cm2 = cm.clone();
+
+        cm.send(69);
+
+        assert_eq!(cm.recv(), cm2.recv());
+        assert_result_eq!(cm.recv(), 69);
     }
 }

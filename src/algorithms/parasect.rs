@@ -63,6 +63,7 @@ where
     }
 }
 
+#[allow(unused)]
 impl<TTask, TPayload, TBeforeCb, TAfterCb> ParasectSettings<TTask, TPayload, TBeforeCb, TAfterCb>
 where
     TTask: CancellableTask<ParasectPayloadResult> + Send,
@@ -219,7 +220,6 @@ mod tests {
     use crate::task::free_cancellable_task::FreeCancellableTask;
     use ibig::ibig;
     use proptest::prelude::*;
-    use std::iter::zip;
     use std::sync::Mutex;
 
     fn ibig(i: isize) -> IBig {
