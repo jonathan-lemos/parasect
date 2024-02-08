@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-num_cpus = "1.16.0"
-ibig = "0.3.6"
-crossbeam-channel = "0.5.10"
-shared_child = "1.0.0"
+crossbeam-channel = "0.5.11"
 dashmap = "5.5.3"
+ibig = "0.3.6"
+num_cpus = "1.16.0"
+shared_child = "1.0.0"
 
 [dev-dependencies]
 proptest = "1.4.0"

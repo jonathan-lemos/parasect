@@ -1,2 +1,3 @@
+pub mod bisecting_range_queue;
 pub mod numeric_range;
-mod numeric_range_set;
+pub mod numeric_range_set;

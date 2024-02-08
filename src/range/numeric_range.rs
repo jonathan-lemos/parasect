@@ -294,6 +294,22 @@ impl NumericRange {
             UBig::try_from(&self.high - &self.low + 1).unwrap()
         }
     }
+
+    /// Truncates the end of the range to a maximum of `end`.
+    pub fn truncate_end(&self, end: &IBig) -> NumericRange {
+        NumericRange::from_endpoints_inclusive(
+            self.low.clone(),
+            min(self.high.clone(), end.clone()),
+        )
+    }
+
+    /// Truncates the start of the range to a minimum of `start`.
+    pub fn truncate_start(&self, start: &IBig) -> NumericRange {
+        NumericRange::from_endpoints_inclusive(
+            max(self.low.clone(), start.clone()),
+            self.high.clone(),
+        )
+    }
 }
 
 impl<'a, 'b> Sub<&'b NumericRange> for &'a NumericRange {
@@ -424,17 +440,9 @@ pub fn consolidate_range_stream<I: Iterator<Item = NumericRange>>(
 mod tests {
     use super::*;
     use crate::collections::collect_collection::CollectHashSet;
-    use crate::test_util::test_util::test_util::{ib, ub};
+    use crate::test_util::test_util::test_util::{empty, ib, r, ub};
     use proptest::collection::vec;
     use proptest::prelude::*;
-
-    fn empty() -> NumericRange {
-        NumericRange::empty()
-    }
-
-    fn r<A: Into<IBig>, B: Into<IBig>>(low: A, high: B) -> NumericRange {
-        NumericRange::from_endpoints_inclusive(low, high)
-    }
 
     #[test]
     fn test_as_tuple() {
@@ -700,6 +708,20 @@ mod tests {
         let ns = Split(r(1, 5), r(6, 10));
 
         assert_eq!(ns.into_iter().collect_vec(), vec!(r(1, 5), r(6, 10)));
+    }
+
+    #[test]
+    fn test_truncate_start() {
+        assert_eq!(r(1, 10).truncate_start(&ib(5)), r(5, 10));
+        assert_eq!(r(1, 10).truncate_start(&ib(-10)), r(1, 10));
+        assert_eq!(r(1, 10).truncate_start(&ib(20)), empty());
+    }
+
+    #[test]
+    fn test_truncate_end() {
+        assert_eq!(r(1, 10).truncate_end(&ib(5)), r(1, 5));
+        assert_eq!(r(1, 10).truncate_end(&ib(-10)), empty());
+        assert_eq!(r(1, 10).truncate_end(&ib(20)), r(1, 10));
     }
 
     proptest! {
