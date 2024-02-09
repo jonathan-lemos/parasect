@@ -89,3 +89,41 @@ impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableS
         self.msg.recv()
     }
 }
+
+#[cfg(test)]
+#[cfg(target_os = "linux")]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant, SystemTime};
+
+    #[test]
+    fn test_echo() {
+        let sp = CancellableSubprocess::new(&["echo", "foo"]).unwrap();
+
+        let result_arc = sp.join().unwrap();
+        let output = match result_arc.as_ref() {
+            Ok(thing) => thing,
+            Err(e) => panic!("{:?}", e),
+        };
+
+        assert_eq!(output.output, "foo\n");
+    }
+
+    #[test]
+    fn test_cancel() {
+        let start = Instant::now();
+
+        let sp = CancellableSubprocess::new(&["sleep", "5"]).unwrap();
+
+        let result_option = thread::scope(|scope| {
+            let t = scope.spawn(|| sp.join());
+            sp.request_cancellation();
+            t.join().unwrap()
+        });
+
+        let end = Instant::now();
+
+        assert!(result_option.is_none());
+        assert!(end - start < Duration::from_secs(2));
+    }
+}

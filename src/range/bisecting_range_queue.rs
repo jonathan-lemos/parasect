@@ -3,7 +3,7 @@ use crate::unwrap_or;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
 use ibig::IBig;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
 struct RangeQueueNode {
@@ -76,23 +76,32 @@ impl BisectingRangeQueue {
         (mid, left, right)
     }
 
-    fn pop_next_valid_node(
-        &self,
-        count: &mut usize,
-    ) -> Option<(NumericRange, Arc<RwLock<RangeQueueNode>>)> {
+    fn pop_next_valid_node(&self) -> Option<(NumericRange, Arc<RwLock<RangeQueueNode>>)> {
         loop {
+            {
+                let length = self.queue_length.read().unwrap();
+
+                if length.deref() == &0 {
+                    return None;
+                }
+            }
+
             let range = match self.range_receiver.recv() {
                 Ok(r) => r,
                 // if this fails, the channel disconnected, so we want to return None
                 Err(_) => return None,
             };
 
-            *count -= 1;
+            {
+                let mut count_mut = self.queue_length.write().unwrap();
+                *count_mut -= 1;
+            }
 
             let node = self
                 .nodes
                 .get(&range)
-                .expect("cannot dequeue a range without inserting it into the map first");
+                .expect("cannot dequeue a range without inserting it into the map first")
+                .clone();
 
             {
                 let guard = node.read().unwrap();
@@ -101,7 +110,7 @@ impl BisectingRangeQueue {
                 }
             }
 
-            return Some((range, node.deref().clone()));
+            return Some((range, node.clone()));
         }
     }
 
@@ -112,8 +121,8 @@ impl BisectingRangeQueue {
 
         let entry = Arc::new(RwLock::new(RangeQueueNode::new(range.clone())));
         self.nodes.insert(range.clone(), entry.clone());
-
         *result = Some(entry);
+
         self.range_sender
             .send(range)
             .expect("channel should not be closed");
@@ -127,26 +136,10 @@ impl BisectingRangeQueue {
     ///
     /// Either or both ranges returned can be empty.
     pub fn dequeue(&self) -> Option<(IBig, NumericRange, NumericRange)> {
-        {
-            let length = self.queue_length.read().unwrap();
-
-            if length.deref() == &0 {
-                return None;
-            }
-        }
-
-        let (range, node) = {
-            let mut length_mut = self.queue_length.write().unwrap();
-
-            let (range, node) = unwrap_or!(
-                self.pop_next_valid_node(length_mut.deref_mut()),
-                return None
-            );
-
-            (range, node)
-        };
+        let (range, node) = unwrap_or!(self.pop_next_valid_node(), return None);
 
         let (split_point, left, right) = Self::split(&range);
+
         let mut guard = node.write().unwrap();
 
         self.append(left.clone(), &mut guard.left);
@@ -169,9 +162,10 @@ impl BisectingRangeQueue {
         let node = self
             .nodes
             .get(range)
-            .expect("called invalidate() with a range not previously returned");
+            .expect("called invalidate() with a range not previously returned")
+            .clone();
 
-        let mut q = vec![node.deref().clone()];
+        let mut q = vec![node.clone()];
 
         while !q.is_empty() {
             let cur = q.pop().unwrap();
@@ -211,9 +205,11 @@ impl BisectingRangeQueue {
         let node = self
             .nodes
             .get(range)
-            .expect("called invalidated() with a range not previously returned");
+            .expect("called invalidated() with a range not previously returned")
+            .clone();
 
-        return node.read().unwrap().invalidated;
+        let guard = node.read().unwrap();
+        guard.invalidated
     }
 }
 
@@ -225,6 +221,7 @@ mod tests {
     use crossbeam_channel::bounded;
     use proptest::prelude::*;
     use std::collections::HashSet;
+    use std::thread;
 
     #[test]
     fn test_dequeue_produces_all_elements() {
@@ -266,8 +263,8 @@ mod tests {
         let mut ns = HashSet::new();
         let q = BisectingRangeQueue::new(r(0, 10), None);
 
-        let (pt, a, b) = q.dequeue().unwrap();
-        let (pt2, a2, b2) = q.dequeue().unwrap();
+        let (pt, a, _b) = q.dequeue().unwrap();
+        let (pt2, a2, _b2) = q.dequeue().unwrap();
 
         ns.insert(pt.clone());
         ns.insert(pt2.clone());
@@ -335,9 +332,42 @@ mod tests {
                 rejected.push(range);
             }
 
-            println!("finding {:?} in [0, {:?}]. rejected: {:?}", a, b, rejected);
-
             assert_eq!(res, Some(a.clone()));
+            assert!(rejected.into_iter().all(|r| !r.contains(a.clone())));
+        }
+
+        #[test]
+        fn test_binary_search_async(a in 1..1000, b in 1..1000) {
+            let (send, recv) = unbounded();
+
+            prop_assume!(a <= b);
+
+            let a = IBig::from(a);
+            let b = IBig::from(b);
+
+            let q = BisectingRangeQueue::new(r(0, b.clone()), Some(send));
+
+            thread::scope(|scope| {
+                let qref = &q;
+                let aref = &a;
+                while let Some((point, left, right)) = qref.dequeue() {
+                    scope.spawn(move || {
+                        if &point < aref {
+                            qref.invalidate(&left);
+                            assert!(qref.invalidated(&left));
+                        } else if &point > aref {
+                            qref.invalidate(&right);
+                            assert!(qref.invalidated(&right));
+                        }
+                    });
+                }
+            });
+
+            let mut rejected = Vec::new();
+            while let Ok(range) = recv.try_recv() {
+                rejected.push(range);
+            }
+
             assert!(rejected.into_iter().all(|r| !r.contains(a.clone())));
         }
     }
