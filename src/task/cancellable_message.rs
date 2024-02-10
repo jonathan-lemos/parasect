@@ -33,14 +33,14 @@ impl<T: Send + Sync> CancellableMessage<T> {
         //
         // in both cases, we don't care if this message is dropped,
         // so it's unnecessary to handle it
-        let _ = self.sender.send(None);
+        let _ = self.sender.try_send(None);
     }
 
     /// Send a value.
     /// All future cancel() or send() calls will be ignored.
     pub fn send<ArcLike: Into<Arc<T>>>(&self, value: ArcLike) -> () {
         // same logic as cancel() for why we can ignore the result
-        let _ = self.sender.send(Some(value.into()));
+        let _ = self.sender.try_send(Some(value.into()));
     }
 
     /// Receives a reference to a value (Some) or a cancellation (None).

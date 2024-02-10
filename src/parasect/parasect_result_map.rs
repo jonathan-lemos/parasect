@@ -1,9 +1,9 @@
-use crate::algorithms::parasect::ParasectError::{InconsistencyError, PayloadError};
-use crate::algorithms::parasect::ParasectPayloadAnswer::*;
-use crate::algorithms::parasect::ParasectPayloadResult::*;
-use crate::algorithms::parasect::{ParasectError, ParasectPayloadResult};
-use crate::algorithms::parasect_result_map::Criticality::*;
 use crate::collections::pred_succ::PredSucc;
+use crate::parasect::parasect_result_map::Criticality::*;
+use crate::parasect::types::ParasectError::{InconsistencyError, PayloadError};
+use crate::parasect::types::ParasectPayloadAnswer::*;
+use crate::parasect::types::ParasectPayloadResult::*;
+use crate::parasect::types::{ParasectError, ParasectPayloadResult};
 use dashmap::DashMap;
 use ibig::IBig;
 

@@ -1,11 +1,13 @@
 #![feature(btree_cursors)] // needed for numeric_range_set
 
-mod algorithms;
-mod task;
+extern crate core;
+
 mod collections;
+mod parasect;
+mod range;
+mod task;
 #[cfg(test)]
 mod test_util;
-mod range;
 mod util;
 
 fn main() {

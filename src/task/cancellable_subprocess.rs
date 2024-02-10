@@ -94,7 +94,7 @@ impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableS
 #[cfg(target_os = "linux")]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant, SystemTime};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_echo() {
