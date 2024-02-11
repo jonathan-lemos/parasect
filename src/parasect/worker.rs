@@ -5,7 +5,7 @@ use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_task::CancellableTask;
-use crossbeam_channel::{bounded, select, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use ibig::IBig;
 use std::sync::Arc;
 use std::thread;
@@ -114,9 +114,9 @@ where
                 ret
             });
 
-            let _ = self
-                .worker_message_sender
-                .send(self.result_to_msg(midpoint, left, right, v));
+            self.worker_message_sender
+                .send(self.result_to_msg(midpoint, left, right, v))
+                .expect("worker_message_sender should not be disconnected");
         }
     }
 

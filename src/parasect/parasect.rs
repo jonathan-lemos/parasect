@@ -1,27 +1,26 @@
 use crate::collections::collect_collection::CollectVec;
-use crate::parasect::background_loop::BackgroundLoop;
 use crate::parasect::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
+use crate::parasect::background_loop::{BackgroundLoop, BackgroundLoopBehavior};
 use crate::parasect::event_handler::Event;
 use crate::parasect::event_handler::Event::{
     ParasectCancelled, RangeInvalidated, WorkerMessageSent,
 };
-use crate::parasect::types::ParasectError::PayloadError;
+use crate::parasect::types::ParasectError::{InconsistencyError, PayloadError};
 use crate::parasect::types::ParasectPayloadAnswer::*;
 use crate::parasect::types::ParasectPayloadResult::*;
 use crate::parasect::types::{ParasectError, ParasectPayloadResult};
-use crate::parasect::worker::PointCompletionMessageType::{Cancelled, Completed};
-use crate::parasect::worker::Worker;
+use crate::parasect::worker::PointCompletionMessageType::Completed;
+use crate::parasect::worker::{Worker, WorkerMessage};
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_task::CancellableTask;
-use crossbeam_channel::{unbounded, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
 use ibig::IBig;
 use num_cpus;
-use std::cmp::max;
-use std::hash::Hash;
-use std::ops::{Deref, DerefMut};
+use std::cmp::{max, min};
+use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
@@ -69,6 +68,148 @@ where
     }
 }
 
+struct ParasectController<'a, TTask, FPayload>
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    FPayload: (Fn(IBig) -> TTask) + Send + Sync,
+{
+    settings: &'a ParasectSettings<TTask, FPayload>,
+    message_sender: Sender<WorkerMessage>,
+    message_receiver: Receiver<WorkerMessage>,
+    queue: Arc<BisectingRangeQueue>,
+    workers: Vec<Worker<TTask, &'a FPayload>>,
+    latest_good: RwLock<IBig>,
+    earliest_bad: RwLock<IBig>,
+    results: DashMap<IBig, ParasectPayloadResult>,
+    failure_message: CancellableMessage<String>,
+}
+
+impl<'a, TTask, FPayload> ParasectController<'a, TTask, FPayload>
+where
+    TTask: CancellableTask<ParasectPayloadResult> + Send,
+    FPayload: (Fn(IBig) -> TTask) + Send + Sync,
+{
+    fn new(settings: &'a ParasectSettings<TTask, FPayload>) -> Self {
+        let (message_sender, message_receiver) = unbounded();
+
+        let queue = Arc::new(BisectingRangeQueue::new(settings.range.clone()));
+
+        let workers = (0..settings.max_parallelism)
+            .map(|i| Worker::new(i, queue.clone(), message_sender.clone(), &settings.payload))
+            .collect_vec();
+
+        Self {
+            settings: &settings,
+            message_sender,
+            message_receiver,
+            queue,
+            workers,
+            latest_good: RwLock::new(IBig::from(settings.range.first().unwrap() - 1)),
+            earliest_bad: RwLock::new(IBig::from(settings.range.last().unwrap() + 1)),
+            results: DashMap::new(),
+            failure_message: CancellableMessage::new(),
+        }
+    }
+
+    fn invalidate_range(&self, range: &NumericRange) -> BackgroundLoopBehavior {
+        self.queue.invalidate(&range);
+
+        for worker in self.workers.iter() {
+            worker.skip_if_in_range(&range);
+        }
+
+        if let Some(sender) = &self.settings.event_sender {
+            sender
+                .send(RangeInvalidated(range.clone()))
+                .expect("Event sender was unexpectedly closed.");
+        }
+
+        DontCancel
+    }
+
+    fn handle_message(&self, message: WorkerMessage) -> BackgroundLoopBehavior {
+        if let Some(sender) = &self.settings.event_sender {
+            sender
+                .send(WorkerMessageSent(message.clone()))
+                .expect("Event sender was unexpectedly closed.");
+        }
+
+        match message.msg_type {
+            Completed(result) => {
+                match &result {
+                    Continue(Good) => {
+                        if self.latest_good.read().unwrap().deref() < &message.point {
+                            let mut guard = self.latest_good.write().unwrap();
+                            *guard = max(guard.deref().clone(), message.point.clone());
+                        }
+                        self.invalidate_range(&message.left);
+                    }
+                    Continue(Bad) => {
+                        if self.earliest_bad.read().unwrap().deref() > &message.point {
+                            let mut guard = self.earliest_bad.write().unwrap();
+                            *guard = min(guard.deref().clone(), message.point.clone());
+                        }
+                        self.invalidate_range(&message.right);
+                    }
+                    Stop(reason) => {
+                        self.failure_message.send(reason.clone());
+                        self.results.insert(message.point, result);
+                        return Cancel;
+                    }
+                }
+                self.results.insert(message.point, result);
+            }
+            _ => {}
+        };
+
+        DontCancel
+    }
+
+    fn run(self) -> DashMap<IBig, ParasectPayloadResult> {
+        let self_ref = &self;
+
+        thread::scope(|scope| {
+            let message_loop =
+                BackgroundLoop::spawn(scope, self_ref.message_receiver.clone(), |msg| {
+                    self_ref.handle_message(msg)
+                });
+
+            scope.spawn(move || {
+                let result = self_ref.failure_message.join();
+
+                message_loop.cancel();
+
+                result.inspect(|reason| {
+                    self_ref.queue.invalidate(&self_ref.settings.range.clone());
+                    if let Some(sender) = &self_ref.settings.event_sender {
+                        sender
+                            .send(ParasectCancelled(reason.as_ref().clone()))
+                            .expect("event_sender should not be closed");
+                    }
+                });
+            });
+
+            let worker_threads = self_ref
+                .workers
+                .iter()
+                .map(|w| scope.spawn(|| w.process_while_remaining()))
+                .collect_vec();
+
+            for t in worker_threads {
+                t.join().unwrap();
+            }
+
+            self_ref.failure_message.cancel();
+        });
+
+        while let Ok(msg) = self.message_receiver.try_recv() {
+            self.handle_message(msg);
+        }
+
+        self.results
+    }
+}
+
 fn process_result_map(
     results: DashMap<IBig, ParasectPayloadResult>,
 ) -> Result<IBig, ParasectError> {
@@ -87,13 +228,13 @@ fn process_result_map(
     bad.sort();
 
     if good.is_empty() {
-        Err(PayloadError("All points were bad.".into()))
+        Err(InconsistencyError("All points were bad.".into()))
     } else if bad.is_empty() {
-        Err(PayloadError("All points were good.".into()))
+        Err(InconsistencyError("All points were good.".into()))
     } else if good.last().unwrap() < bad.first().unwrap() {
         Ok(bad.first().unwrap().clone())
     } else {
-        Err(PayloadError(format!(
+        Err(InconsistencyError(format!(
             "Found good point {} after bad point {}.",
             good.first().unwrap(),
             bad.first().unwrap()
@@ -108,118 +249,24 @@ where
     TTask: CancellableTask<ParasectPayloadResult> + Send,
     FPayload: (Fn(IBig) -> TTask) + Send + Sync,
 {
-    let (invalidation_sender, invalidation_receiver) = unbounded();
-    let (msg_sender, msg_receiver) = unbounded();
-
-    let queue = Arc::new(BisectingRangeQueue::new(
-        settings.range.clone(),
-        Some(invalidation_sender),
-    ));
-
-    let results = DashMap::<IBig, ParasectPayloadResult>::new();
-
-    let workers = (0..settings.max_parallelism)
-        .map(|i| Worker::new(i, queue.clone(), msg_sender.clone(), &settings.payload))
-        .collect_vec();
-
-    {
-        let workers_ref = &workers;
-        let ivr = &invalidation_receiver;
-        let msgr = &msg_receiver;
-        let global_cancel = CancellableMessage::<String>::new();
-        let global_cancel_ref = &global_cancel;
-        let queue_ref = &queue;
-        let settings_ref = &settings;
-        let latest_good = RwLock::<IBig>::new(&settings.range.first().unwrap() - 1);
-        let latest_bad = RwLock::<IBig>::new(&settings.range.first().unwrap() - 1);
-
-        thread::scope(|scope| {
-            let invalidation_thread = BackgroundLoop::spawn(scope, ivr.clone(), |range| {
-                if let Some(sender) = &settings_ref.event_sender {
-                    sender
-                        .send(RangeInvalidated(range.clone()))
-                        .expect("Event sender was unexpectedly closed.");
-                }
-                for worker in workers_ref.iter() {
-                    worker.skip_if_in_range(&range);
-                }
-                DontCancel
-            });
-
-            let msg_thread = BackgroundLoop::spawn(scope, msgr.clone(), |msg| {
-                if let Some(sender) = &settings_ref.event_sender {
-                    sender
-                        .send(WorkerMessageSent(msg.clone()))
-                        .expect("Event sender was unexpectedly closed.");
-                }
-                match msg.msg_type {
-                    Completed(result) => {
-                        match &result {
-                            Continue(Good) => {
-                                if latest_good.read().unwrap().deref() < &msg.point {
-                                    let mut guard = latest_good.write().unwrap();
-                                    *guard = max(guard.deref().clone(), msg.point.clone())
-                                }
-                                queue.invalidate(&msg.left);
-                            }
-                            Continue(Bad) => {
-                                if latest_bad.read().unwrap().deref() < &msg.point {
-                                    let mut guard = latest_bad.write().unwrap();
-                                    *guard = max(guard.deref().clone(), msg.point.clone())
-                                }
-                                queue.invalidate(&msg.right);
-                            }
-                            Stop(reason) => {
-                                global_cancel_ref.send(reason.clone());
-                                return Cancel;
-                            }
-                        }
-                        results.insert(msg.point, result);
-                    }
-                    _ => {}
-                };
-                DontCancel
-            });
-
-            scope.spawn(move || match global_cancel_ref.join() {
-                None => {
-                    msg_thread.cancel();
-                    invalidation_thread.cancel();
-                }
-                Some(reason) => {
-                    queue_ref.invalidate(&settings_ref.range);
-                    if let Some(sender) = &settings_ref.event_sender {
-                        sender
-                            .send(ParasectCancelled(reason.as_ref().clone()))
-                            .expect("event_sender should not be closed");
-                    }
-                }
-            });
-
-            let worker_threads = workers_ref
-                .iter()
-                .map(|w| scope.spawn(|| w.process_while_remaining()))
-                .collect_vec();
-
-            for t in worker_threads {
-                t.join().unwrap();
-            }
-
-            global_cancel_ref.cancel();
-        });
+    if settings.range.is_empty() {
+        return Err(InconsistencyError("Cannot parasect an empty range.".into()));
     }
 
-    todo!();
+    let controller = ParasectController::new(&settings);
+    let results = controller.run();
+    process_result_map(results)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::task::free_cancellable_task::FreeCancellableTask;
+    use crate::task::function_cancellable_task::FunctionCancellableTask;
     use crate::test_util::test_util::test_util::{ib, r};
-    use ibig::ibig;
     use proptest::prelude::*;
-    use std::sync::Mutex;
+    use rand::random;
+    use std::time::Duration;
 
     #[test]
     fn test_parasect() {
@@ -255,13 +302,25 @@ mod tests {
 
     #[test]
     fn test_parasect_all_good() {
-        let result = parasect(ParasectSettings::new(ibig(1), ibig(500), |_| {
+        let result = parasect(ParasectSettings::new(r(1, 500), |_| {
             FreeCancellableTask::new(Continue(Good))
         }));
 
         assert_eq!(
             result,
-            Err(InconsistencyError("All values are good.".into()))
+            Err(InconsistencyError("All points were good.".into()))
+        );
+    }
+
+    #[test]
+    fn test_parasect_all_bad() {
+        let result = parasect(ParasectSettings::new(r(1, 500), |_| {
+            FreeCancellableTask::new(Continue(Bad))
+        }));
+
+        assert_eq!(
+            result,
+            Err(InconsistencyError("All points were bad.".into()))
         );
     }
 
@@ -272,13 +331,33 @@ mod tests {
             nums.sort();
             let [lo, lt, hi] = nums;
 
+            prop_assume!(lo < lt && lt < hi);
+
             let result =
                 parasect(
-                    ParasectSettings::new(lo, hi, |x|
-                        FreeCancellableTask::new(if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) })));
+                    ParasectSettings::new(r(lo, hi), |x|
+                        FreeCancellableTask::new(if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) })).with_max_parallelism(3));
 
-            prop_assert!(result.is_ok());
-            prop_assert!(result.unwrap() == IBig::from(lt));
+            prop_assert_eq!(result, Ok(IBig::from(lt)));
+        }
+
+        #[test]
+        fn prop_parasect_slow_payload_fuzz(a in 1..1000, b in 1..1000, c in 1..1000) {
+            let mut nums = [a, b, c];
+            nums.sort();
+            let [lo, lt, hi] = nums;
+
+            prop_assume!(lo < lt && lt < hi);
+
+            let result =
+                parasect(
+                    ParasectSettings::new(r(lo, hi), |x|
+                        FunctionCancellableTask::new(move || {
+                        thread::sleep(Duration::from_millis(random::<u64>() % 51));
+                        if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) }
+                    })).with_max_parallelism(3));
+
+            prop_assert_eq!(result, Ok(IBig::from(lt)));
         }
     }
 }

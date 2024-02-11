@@ -159,6 +159,10 @@ impl NumericRangeSet {
 
     /// `true` if any range in the NumericRangeSet includes each number in the given range.
     pub fn contains_range(&self, range: &NumericRange) -> bool {
+        if range.is_empty() {
+            return true;
+        }
+
         let first = unwrap_or!(range.first(), return false);
         let cursor = self.range_starts.upper_bound(Included(&first));
 
@@ -501,6 +505,17 @@ mod tests {
     }
 
     #[test]
+    fn test_contains_range_empty() {
+        let mut s = NumericRangeSet::new();
+
+        assert!(s.contains_range(&empty()));
+
+        s.add(r(12, 69));
+
+        assert!(s.contains_range(&empty()));
+    }
+
+    #[test]
     fn test_max() {
         let mut s = NumericRangeSet::new();
         s.add(r(0, 10));
@@ -528,6 +543,16 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn add_implies_contains(a in 1..1000, b in 1..1000) {
+            prop_assume!(a <= b);
+
+            let mut s = NumericRangeSet::new();
+
+            s.add(r(a, b));
+            prop_assert!(s.contains_range(&r(a, b)));
+        }
+
         #[test]
         fn fuzz_add_many(seq in vec((1..1000, 1..1000), 1..100)) {
             let ranges = seq

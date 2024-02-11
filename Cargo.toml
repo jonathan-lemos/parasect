@@ -11,6 +11,7 @@ dashmap = "5.5.3"
 ibig = "0.3.6"
 num_cpus = "1.16.0"
 shared_child = "1.0.0"
+rand = "0.8.5"
 
 [dev-dependencies]
 proptest = "1.4.0"

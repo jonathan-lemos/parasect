@@ -99,6 +99,7 @@ impl<T: Send + Sync> CancellableTask<T> for CancellableMessage<T> {
 // The OnceCell cannot be mutated without an exclusive write lock.
 // Therefore, we claim that this is thread-safe.
 unsafe impl<T> Send for CancellableMessage<T> where T: Send + Sync {}
+
 unsafe impl<T> Sync for CancellableMessage<T> where T: Send + Sync {}
 
 #[cfg(test)]

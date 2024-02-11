@@ -47,6 +47,13 @@ mod tests {
     }
 
     #[test]
+    fn join_idempotent() {
+        let task = FreeCancellableTask::<i64>::new(69);
+        assert_result_eq!(task.join(), 69);
+        assert_result_eq!(task.join(), 69);
+    }
+
+    #[test]
     fn returns_none_on_cancel() {
         let task = FreeCancellableTask::<i64>::new(69);
         task.request_cancellation();
