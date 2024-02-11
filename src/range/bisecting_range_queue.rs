@@ -91,13 +91,6 @@ impl BisectingRangeQueue {
     pub fn range_invalidated(&self, range: &NumericRange) -> bool {
         self.invalid.read().unwrap().contains_range(range)
     }
-
-    /// Returns `true` if the given range was invalidated, `false` if not.
-    ///
-    /// An empty range is always invalid.
-    pub fn point_invalidated<P: Into<IBig>>(&self, point: P) -> bool {
-        self.invalid.read().unwrap().contains(point)
-    }
 }
 
 #[cfg(test)]

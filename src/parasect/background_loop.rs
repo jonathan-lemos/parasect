@@ -1,7 +1,7 @@
 use crate::parasect::background_loop::BackgroundLoopBehavior::Cancel;
 use crossbeam_channel::{bounded, select, Receiver, Sender};
-use std::thread;
-use std::thread::{Scope, ScopedJoinHandle};
+use std::marker::PhantomData;
+use std::thread::Scope;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum BackgroundLoopBehavior {
@@ -10,7 +10,7 @@ pub enum BackgroundLoopBehavior {
 }
 
 pub struct BackgroundLoop<'scope> {
-    thread: ScopedJoinHandle<'scope, ()>,
+    scope_phantom: PhantomData<&'scope ()>,
     cancel_sender: Sender<()>,
 }
 
@@ -27,7 +27,7 @@ impl<'scope> BackgroundLoop<'scope> {
     {
         let (cancel_sender, cancel_receiver) = bounded(1);
 
-        let thread = scope.spawn(move || loop {
+        scope.spawn(move || loop {
             select! {
                 recv(cancel_receiver) -> _ => return,
                 recv(receiver) -> val => {
@@ -43,8 +43,8 @@ impl<'scope> BackgroundLoop<'scope> {
         });
 
         Self {
-            thread,
             cancel_sender,
+            scope_phantom: PhantomData,
         }
     }
 

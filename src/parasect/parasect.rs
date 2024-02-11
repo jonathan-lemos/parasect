@@ -1,10 +1,8 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::parasect::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
 use crate::parasect::background_loop::{BackgroundLoop, BackgroundLoopBehavior};
-use crate::parasect::event_handler::Event;
-use crate::parasect::event_handler::Event::{
-    ParasectCancelled, RangeInvalidated, WorkerMessageSent,
-};
+use crate::parasect::event::Event;
+use crate::parasect::event::Event::{ParasectCancelled, RangeInvalidated, WorkerMessageSent};
 use crate::parasect::types::ParasectError::{InconsistencyError, PayloadError};
 use crate::parasect::types::ParasectPayloadAnswer::*;
 use crate::parasect::types::ParasectPayloadResult::*;
@@ -74,7 +72,6 @@ where
     FPayload: (Fn(IBig) -> TTask) + Send + Sync,
 {
     settings: &'a ParasectSettings<TTask, FPayload>,
-    message_sender: Sender<WorkerMessage>,
     message_receiver: Receiver<WorkerMessage>,
     queue: Arc<BisectingRangeQueue>,
     workers: Vec<Worker<TTask, &'a FPayload>>,
@@ -100,7 +97,6 @@ where
 
         Self {
             settings: &settings,
-            message_sender,
             message_receiver,
             queue,
             workers,
