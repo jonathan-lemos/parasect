@@ -1,10 +1,10 @@
-use crate::parasect::background_loop::BackgroundLoop;
-use crate::parasect::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
 use crate::parasect::types::ParasectPayloadResult;
 use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_task::CancellableTask;
+use crate::threading::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
+use crate::threading::background_loop::ScopedBackgroundLoop;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use ibig::IBig;
 use std::sync::Arc;
@@ -99,7 +99,7 @@ where
 
             let v = thread::scope(|scope| {
                 let cancel_receiver_loop =
-                    BackgroundLoop::spawn(scope, self.cancel_receiver.clone(), |range| {
+                    ScopedBackgroundLoop::spawn(scope, self.cancel_receiver.clone(), |range| {
                         if range.contains(midpoint.clone()) {
                             task.request_cancellation();
                             Cancel

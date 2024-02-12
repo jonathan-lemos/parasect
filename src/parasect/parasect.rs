@@ -1,6 +1,4 @@
 use crate::collections::collect_collection::CollectVec;
-use crate::parasect::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
-use crate::parasect::background_loop::{BackgroundLoop, BackgroundLoopBehavior};
 use crate::parasect::event::Event;
 use crate::parasect::event::Event::{ParasectCancelled, RangeInvalidated, WorkerMessageSent};
 use crate::parasect::types::ParasectError::{InconsistencyError, PayloadError};
@@ -13,6 +11,8 @@ use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_task::CancellableTask;
+use crate::threading::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
+use crate::threading::background_loop::{BackgroundLoopBehavior, ScopedBackgroundLoop};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
 use ibig::IBig;
@@ -123,6 +123,32 @@ where
         DontCancel
     }
 
+    fn check_good_does_not_exceed_bad(&self) {
+        let good_read = self.latest_good.read().unwrap();
+        let bad_read = self.earliest_bad.read().unwrap();
+        if good_read.deref() > bad_read.deref() {
+            self.failure_message.send(format!("A good {} was detected after a bad {}. Parasect requires 1 or more good followed by remaining bad.", good_read.deref(), bad_read.deref()))
+        }
+    }
+
+    fn adjust_latest_good(&self, point: &IBig) {
+        if self.latest_good.read().unwrap().deref() < &point {
+            let mut guard = self.latest_good.write().unwrap();
+            *guard = max(guard.deref().clone(), point.clone());
+        }
+
+        self.check_good_does_not_exceed_bad();
+    }
+
+    fn adjust_earliest_bad(&self, point: &IBig) {
+        if self.earliest_bad.read().unwrap().deref() > point {
+            let mut guard = self.earliest_bad.write().unwrap();
+            *guard = min(guard.deref().clone(), point.clone());
+        }
+
+        self.check_good_does_not_exceed_bad();
+    }
+
     fn handle_message(&self, message: WorkerMessage) -> BackgroundLoopBehavior {
         if let Some(sender) = &self.settings.event_sender {
             sender
@@ -134,17 +160,11 @@ where
             Completed(result) => {
                 match &result {
                     Continue(Good) => {
-                        if self.latest_good.read().unwrap().deref() < &message.point {
-                            let mut guard = self.latest_good.write().unwrap();
-                            *guard = max(guard.deref().clone(), message.point.clone());
-                        }
+                        self.adjust_latest_good(&message.point);
                         self.invalidate_range(&message.left);
                     }
                     Continue(Bad) => {
-                        if self.earliest_bad.read().unwrap().deref() > &message.point {
-                            let mut guard = self.earliest_bad.write().unwrap();
-                            *guard = min(guard.deref().clone(), message.point.clone());
-                        }
+                        self.adjust_earliest_bad(&message.point);
                         self.invalidate_range(&message.right);
                     }
                     Stop(reason) => {
@@ -166,7 +186,7 @@ where
 
         thread::scope(|scope| {
             let message_loop =
-                BackgroundLoop::spawn(scope, self_ref.message_receiver.clone(), |msg| {
+                ScopedBackgroundLoop::spawn(scope, self_ref.message_receiver.clone(), |msg| {
                     self_ref.handle_message(msg)
                 });
 

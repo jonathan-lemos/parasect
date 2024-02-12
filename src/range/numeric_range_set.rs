@@ -2,7 +2,7 @@ use crate::collections::collect_collection::CollectVec;
 use crate::range::numeric_range::{consolidate_range_stream, MaybeSplitNumericRange, NumericRange};
 use crate::unwrap_or;
 use ibig::{IBig, UBig};
-use std::collections::btree_map::CursorMut;
+use std::collections::btree_map::{Cursor, CursorMut};
 use std::collections::BTreeMap;
 use std::ops::Bound::Included;
 use MaybeSplitNumericRange::{NotSplit, Split};
@@ -148,6 +148,11 @@ impl NumericRangeSet {
         self.shrink_range_binary(&(low - 1), &high, |prev, next| (prev | next).into_iter());
     }
 
+    /// `(min, max)`, if there's at least one value in the NumericRangeSet.
+    pub fn bounds(&self) -> Option<(IBig, IBig)> {
+        self.min().and_then(|lo| self.max().map(|hi| (lo, hi)))
+    }
+
     /// `true` if any range in the NumericRangeSet contains the given number.
     pub fn contains<N: Into<IBig>>(&self, n: N) -> bool {
         let n = n.into();
@@ -173,14 +178,22 @@ impl NumericRangeSet {
     }
 
     /// Iterates over all ranges in the NumericRangeSet that intersect [low, high] inclusive.
-    pub fn iter_range_inclusive<'a, A: Into<IBig>, B: Into<IBig>>(
+    pub fn iter_range<'a>(
         &'a self,
-        low: A,
-        high: B,
+        range: &NumericRange,
     ) -> impl Iterator<Item = NumericRange> + 'a {
-        self.range_starts
-            .range((Included(&low.into()), Included(&high.into())))
-            .map(|x| x.1.clone())
+        let low = range.first().unwrap_or(IBig::from(0));
+
+        NumericRangeSetIterator {
+            cursor: self.range_starts.upper_bound(Included(&low)),
+            range: range.clone(),
+            end: false,
+        }
+    }
+
+    /// Returns `true` if and only if the NumericRangeSet contains at least one element from the range or the range is empty.
+    pub fn intersects_range(&self, range: &NumericRange) -> bool {
+        return range.is_empty() || self.iter_range(&range).any(|_| true);
     }
 
     /// Returns the maximum value of any range in the NumericRangeSet.
@@ -243,6 +256,46 @@ impl NumericRangeSet {
     pub fn span(&self) -> Option<UBig> {
         self.min()
             .and_then(|min| self.max().map(|max| UBig::try_from(max - min).unwrap()))
+    }
+}
+
+pub struct NumericRangeSetIterator<'a> {
+    cursor: Cursor<'a, IBig, NumericRange>,
+    range: NumericRange,
+    end: bool,
+}
+
+impl<'a> Iterator for NumericRangeSetIterator<'a> {
+    type Item = NumericRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (low, high) = unwrap_or!(self.range.as_tuple(), return None);
+
+        if self.end {
+            return None;
+        }
+
+        match self.cursor.peek_prev() {
+            None => {
+                if self.cursor.peek_next().is_none() {
+                    None
+                } else {
+                    self.end = self.cursor.next().is_none();
+                    self.next()
+                }
+            }
+            Some(r) => {
+                if r.1.last().unwrap() < low {
+                    self.end = self.cursor.next().is_none();
+                    self.next()
+                } else if r.1.first().unwrap() > high {
+                    None
+                } else {
+                    self.end = self.cursor.next().is_none();
+                    Some(r.1.clone())
+                }
+            }
+        }
     }
 }
 
@@ -460,6 +513,15 @@ mod tests {
     }
 
     #[test]
+    fn test_bounds() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(0, 10));
+        s.add(r(20, 30));
+
+        assert_eq!(s.bounds(), Some((ib(0), ib(30))));
+    }
+
+    #[test]
     fn test_contains() {
         let mut s = NumericRangeSet::new();
         s.add(r(1, 3));
@@ -513,6 +575,43 @@ mod tests {
         s.add(r(12, 69));
 
         assert!(s.contains_range(&empty()));
+    }
+
+    #[test]
+    fn test_iter_range() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(1, 3));
+        s.add(r(11, 13));
+        s.add(r(21, 23));
+
+        assert_eq!(
+            s.iter_range(&r(12, 22)).collect_vec(),
+            vec!(r(11, 13), r(21, 23))
+        );
+        assert_eq!(
+            s.iter_range(&r(11, 23)).collect_vec(),
+            vec!(r(11, 13), r(21, 23))
+        );
+        assert_eq!(
+            s.iter_range(&r(13, 21)).collect_vec(),
+            vec!(r(11, 13), r(21, 23))
+        );
+        assert_eq!(s.iter_range(&r(23, 29)).collect_vec(), vec!(r(21, 23)));
+        assert_eq!(s.iter_range(&r(25, 29)).collect_vec(), Vec::new());
+    }
+
+    #[test]
+    fn test_intersects_range() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(1, 3));
+        s.add(r(11, 13));
+        s.add(r(21, 23));
+
+        assert!(s.intersects_range(&r(12, 15)));
+        assert!(s.intersects_range(&r(13, 15)));
+        assert!(s.intersects_range(&r(0, 30)));
+        assert!(s.intersects_range(&empty()));
+        assert!(!s.intersects_range(&r(15, 16)));
     }
 
     #[test]
@@ -598,6 +697,26 @@ mod tests {
                 as_vec(&s).iter().flat_map(|x| x.1.iter()).collect_hashset(),
                 hs
             );
+        }
+
+        #[test]
+        fn fuzz_iter_range(seq in vec((1..1000, 1..1000), 1..100), lo in 1..1000, hi in 1..1000) {
+            let mut s = NumericRangeSet::new();
+
+            for (a, b) in &seq {
+                s.add(r(*a, *b));
+            }
+
+            assert_invariants(&s);
+
+            let results = s.iter_range(&r(lo, hi)).collect_vec();
+
+            let expected = consolidate_range_stream(seq.into_iter().map(|t| r(t.0, t.1)))
+                .into_iter()
+                .filter(|range| !range.disjoint_to(&r(lo, hi)))
+                .collect_vec();
+
+            prop_assert_eq!(results, expected);
         }
     }
 }

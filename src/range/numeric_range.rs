@@ -1,5 +1,6 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::range::numeric_range::MaybeSplitNumericRange::*;
+use crate::unwrap_or;
 use ibig::{IBig, UBig};
 use std::cmp::{max, min};
 use std::fmt::{Debug, Display, Formatter};
@@ -295,6 +296,45 @@ impl NumericRange {
         }
     }
 
+    /// Partitions the range into at most `partitions` partitions.
+    ///
+    /// You will get fewer than `partitions` partitions if the length of the range is lower than the number of partitions. An empty range always partitions into an empty vec.
+    ///
+    /// Panics if 0 partitions are requested.
+    pub fn partition(&self, partitions: usize) -> Vec<NumericRange> {
+        assert_ne!(partitions, 0, "Cannot partition into 0 partitions.");
+
+        let mut ptr = unwrap_or!(self.first(), return Vec::new());
+
+        if UBig::from(partitions) > self.len() {
+            return (0..self.len().try_into().unwrap())
+                .into_iter()
+                .map(|i| Self::from_point(&ptr + i))
+                .collect_vec();
+        }
+
+        let size_per = self.len() / partitions;
+        let mut remainder = self.len() % partitions;
+
+        let mut ret = Vec::new();
+
+        for _ in 0..partitions {
+            let delta = &size_per + if remainder > 0 { 0 } else { -1 };
+            if remainder > 0 {
+                remainder -= 1;
+            }
+
+            ret.push(Self::from_endpoints_inclusive(
+                ptr.clone(),
+                &ptr + IBig::from(&delta),
+            ));
+
+            ptr += IBig::from(&delta) + 1;
+        }
+
+        ret
+    }
+
     /// Truncates the end of the range to a maximum of `end`.
     pub fn truncate_end(&self, end: &IBig) -> NumericRange {
         NumericRange::from_endpoints_inclusive(
@@ -576,42 +616,51 @@ mod tests {
     }
 
     #[test]
+    fn test_partition() {
+        assert_eq!(r(0, 20).partition(3), vec!(r(0, 6), r(7, 13), r(14, 20)));
+        assert_eq!(r(0, 22).partition(3), vec!(r(0, 7), r(8, 15), r(16, 22)));
+        assert_eq!(r(0, 2).partition(4), vec!(r(0, 0), r(1, 1), r(2, 2)));
+        assert_eq!(r(0, 2).partition(3), vec!(r(0, 0), r(1, 1), r(2, 2)));
+        assert_eq!(empty().partition(4), Vec::new());
+    }
+
+    #[test]
     fn test_sub() {
-        assert_eq!(&r(1, 10) - 5, Split(r(1, 4), r(6, 10),));
+        assert_eq!(&r(1, 10) - 5, Split(r(1, 4), r(6, 10)));
 
-        assert_eq!(&r(1, 10) - 0, NotSplit(r(1, 10),));
+        assert_eq!(&r(1, 10) - 0, NotSplit(r(1, 10)));
 
-        assert_eq!(&r(1, 10) - 11, NotSplit(r(1, 10),));
+        assert_eq!(&r(1, 10) - 11, NotSplit(r(1, 10)));
 
-        assert_eq!(&r(1, 10) - 1, NotSplit(r(2, 10),));
+        assert_eq!(&r(1, 10) - 1, NotSplit(r(2, 10)));
 
-        assert_eq!(&r(1, 10) - 10, NotSplit(r(1, 9),));
+        assert_eq!(&r(1, 10) - 10, NotSplit(r(1, 9)));
 
-        assert_eq!(&r(1, 10) - &r(4, 6), Split(r(1, 3), r(7, 10),));
+        assert_eq!(&r(1, 10) - &r(4, 6), Split(r(1, 3), r(7, 10)));
 
-        assert_eq!(&r(1, 10) - &r(0, 5), NotSplit(r(6, 10),));
+        assert_eq!(&r(1, 10) - &r(0, 5), NotSplit(r(6, 10)));
 
-        assert_eq!(&r(1, 10) - &r(7, 15), NotSplit(r(1, 6),));
+        assert_eq!(&r(1, 10) - &r(7, 15), NotSplit(r(1, 6)));
 
-        assert_eq!(&r(1, 10) - &r(-1, 15), NotSplit(empty(),));
+        assert_eq!(&r(1, 10) - &r(-1, 15), NotSplit(empty()));
 
-        assert_eq!(&r(1, 10) - &r(1, 5), NotSplit(r(6, 10),));
+        assert_eq!(&r(1, 10) - &r(1, 5), NotSplit(r(6, 10)));
 
-        assert_eq!(&r(1, 10) - &r(5, 10), NotSplit(r(1, 4),));
+        assert_eq!(&r(1, 10) - &r(5, 10), NotSplit(r(1, 4)));
 
-        assert_eq!(&r(1, 10) - &r(1, 10), NotSplit(empty(),));
+        assert_eq!(&r(1, 10) - &r(1, 10), NotSplit(empty()));
 
-        assert_eq!(&r(1, 10) - &r(-20, -1), NotSplit(r(1, 10),));
+        assert_eq!(&r(1, 10) - &r(-20, -1), NotSplit(r(1, 10)));
 
-        assert_eq!(&r(1, 10) - &r(11, 15), NotSplit(r(1, 10),));
+        assert_eq!(&r(1, 10) - &r(11, 15), NotSplit(r(1, 10)));
 
-        assert_eq!(&r(1, 10) - &r(-10, 1), NotSplit(r(2, 10),));
+        assert_eq!(&r(1, 10) - &r(-10, 1), NotSplit(r(2, 10)));
 
-        assert_eq!(&r(1, 10) - &r(10, 15), NotSplit(r(1, 9),));
+        assert_eq!(&r(1, 10) - &r(10, 15), NotSplit(r(1, 9)));
 
-        assert_eq!(&empty() - &empty(), NotSplit(empty(),));
+        assert_eq!(&empty() - &empty(), NotSplit(empty()));
 
-        assert_eq!(&empty() - &r(69, 69), NotSplit(empty(),));
+        assert_eq!(&empty() - &r(69, 69), NotSplit(empty()));
     }
 
     #[test]
@@ -647,7 +696,7 @@ mod tests {
 
         assert_eq!(&r(1, 10) | &r(-5, 4), NotSplit(r(-5, 10)));
 
-        assert_eq!(&r(1, 10) | &r(-5, -1), Split(r(-5, -1), r(1, 10),));
+        assert_eq!(&r(1, 10) | &r(-5, -1), Split(r(-5, -1), r(1, 10)));
 
         assert_eq!(&r(1, 10) | &r(11, 15), NotSplit(r(1, 15)));
 
@@ -801,6 +850,28 @@ mod tests {
             let ab_set = r(a, b).iter().collect_hashset();
 
             prop_assert_eq!(r(a, b).disjoint_to(&r(c, d)), r(c, d).iter().all(|x| !ab_set.contains(&x)));
+        }
+
+        #[test]
+        fn test_partition_matches_original(a in 1..1000usize, b in 1..1000usize, c in 1..1000usize) {
+            let mut nums = vec!(a, b, c);
+            nums.sort();
+            let (partitions, lo, hi) = (nums[0], nums[1], nums[2]);
+
+            prop_assert_eq!(consolidate_range_stream(r(lo, hi).partition(partitions).into_iter()), vec!(r(lo, hi)));
+        }
+
+        #[test]
+        fn test_partition_connected(a in 1..1000usize, b in 1..1000usize, c in 1..1000usize) {
+            let mut nums = vec!(a, b, c);
+            nums.sort();
+            let (partitions, lo, hi) = (nums[0], nums[1], nums[2]);
+
+            let parts = r(lo, hi).partition(partitions);
+
+            for (a, b) in parts.iter().zip(parts.iter().skip(1)) {
+                assert_eq!(a.last().unwrap() + 1, b.first().unwrap());
+            }
         }
 
         #[test]

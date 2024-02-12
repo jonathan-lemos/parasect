@@ -3,6 +3,9 @@ use crate::task::cancellable_task::CancellableTask;
 use std::cell::UnsafeCell;
 use std::sync::{Arc, RwLock};
 
+/// A CancellableTask that yields a value from the given function.
+///
+/// The function does not execute until join() is called.
 pub struct FunctionCancellableTask<T, F>
 where
     T: Send + Sync,
@@ -67,6 +70,19 @@ where
             };
             self.cancellable_message.send(f());
             self.cancellable_message.join()
+        }
+    }
+}
+
+impl<T, F> Clone for FunctionCancellableTask<T, F>
+where
+    T: Send + Sync,
+    F: FnOnce() -> T,
+{
+    fn clone(&self) -> Self {
+        Self {
+            cancellable_message: self.cancellable_message.clone(),
+            function: self.function.clone(),
         }
     }
 }
