@@ -296,7 +296,7 @@ impl NumericRange {
         }
     }
 
-    /// Partitions the range into at most `partitions` partitions.
+    /// Partitions the range into at most `partitions` partitions of equal length, remainders spread towards the front.
     ///
     /// You will get fewer than `partitions` partitions if the length of the range is lower than the number of partitions. An empty range always partitions into an empty vec.
     ///

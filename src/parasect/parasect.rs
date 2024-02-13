@@ -4,7 +4,7 @@ use crate::parasect::event::Event::{ParasectCancelled, RangeInvalidated, WorkerM
 use crate::parasect::types::ParasectError::{InconsistencyError, PayloadError};
 use crate::parasect::types::ParasectPayloadAnswer::*;
 use crate::parasect::types::ParasectPayloadResult::*;
-use crate::parasect::types::{ParasectError, ParasectPayloadResult};
+use crate::parasect::types::{ParasectError, ParasectPayloadAnswer, ParasectPayloadResult};
 use crate::parasect::worker::PointCompletionMessageType::Completed;
 use crate::parasect::worker::{Worker, WorkerMessage};
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
@@ -107,7 +107,11 @@ where
         }
     }
 
-    fn invalidate_range(&self, range: &NumericRange) -> BackgroundLoopBehavior {
+    fn invalidate_range(
+        &self,
+        range: &NumericRange,
+        answer: ParasectPayloadAnswer,
+    ) -> BackgroundLoopBehavior {
         self.queue.invalidate(&range);
 
         for worker in self.workers.iter() {
@@ -116,7 +120,7 @@ where
 
         if let Some(sender) = &self.settings.event_sender {
             sender
-                .send(RangeInvalidated(range.clone()))
+                .send(RangeInvalidated(range.clone(), answer))
                 .expect("Event sender was unexpectedly closed.");
         }
 

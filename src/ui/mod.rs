@@ -1,3 +1,5 @@
+pub mod color;
 pub mod line;
-mod progress_bar;
-mod ui_component;
+pub mod progress_bar;
+pub mod segment;
+pub mod ui_component;

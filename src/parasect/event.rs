@@ -1,3 +1,4 @@
+use crate::parasect::types::ParasectPayloadAnswer;
 use crate::parasect::worker::WorkerMessage;
 use crate::range::numeric_range::NumericRange;
 
@@ -5,5 +6,5 @@ use crate::range::numeric_range::NumericRange;
 pub enum Event {
     WorkerMessageSent(WorkerMessage),
     ParasectCancelled(String),
-    RangeInvalidated(NumericRange),
+    RangeInvalidated(NumericRange, ParasectPayloadAnswer),
 }

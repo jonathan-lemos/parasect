@@ -149,8 +149,13 @@ impl NumericRangeSet {
     }
 
     /// `(min, max)`, if there's at least one value in the NumericRangeSet.
-    pub fn bounds(&self) -> Option<(IBig, IBig)> {
-        self.min().and_then(|lo| self.max().map(|hi| (lo, hi)))
+    pub fn bounds(&self) -> NumericRange {
+        self.min()
+            .and_then(|lo| {
+                self.max()
+                    .map(|hi| NumericRange::from_endpoints_inclusive(lo, hi))
+            })
+            .unwrap_or(NumericRange::empty())
     }
 
     /// `true` if any range in the NumericRangeSet contains the given number.
@@ -296,6 +301,18 @@ impl<'a> Iterator for NumericRangeSetIterator<'a> {
                 }
             }
         }
+    }
+}
+
+impl FromIterator<NumericRange> for NumericRangeSet {
+    fn from_iter<T: IntoIterator<Item = NumericRange>>(iter: T) -> Self {
+        let mut ret = NumericRangeSet::new();
+
+        for range in iter {
+            ret.add(range);
+        }
+
+        ret
     }
 }
 
@@ -518,7 +535,8 @@ mod tests {
         s.add(r(0, 10));
         s.add(r(20, 30));
 
-        assert_eq!(s.bounds(), Some((ib(0), ib(30))));
+        assert_eq!(s.bounds(), r(0, ib(30)));
+        assert_eq!(NumericRangeSet::new().bounds(), empty());
     }
 
     #[test]
@@ -701,11 +719,7 @@ mod tests {
 
         #[test]
         fn fuzz_iter_range(seq in vec((1..1000, 1..1000), 1..100), lo in 1..1000, hi in 1..1000) {
-            let mut s = NumericRangeSet::new();
-
-            for (a, b) in &seq {
-                s.add(r(*a, *b));
-            }
+            let s: NumericRangeSet = seq.iter().map(|t| r(t.0, t.1)).collect();
 
             assert_invariants(&s);
 

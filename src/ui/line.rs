@@ -1,83 +1,101 @@
 use crate::collections::collect_collection::CollectVec;
-
-#[derive(Default, Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub enum Color {
-    #[default]
-    Default,
-    Red,
-    Green,
-    Yellow,
-}
+use crate::ui::segment::Segment;
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Line {
-    segments: Box<[(String, Color)]>,
+    segments: Box<[Segment]>,
 }
 
 impl Line {
-    pub fn new(segments: Box<[(String, Color)]>) -> Self {
-        Self { segments }
+    pub fn empty() -> Self {
+        Self {
+            segments: Box::new([]),
+        }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &(String, Color)> {
-        self.segments.iter()
+    pub fn new<I: IntoIterator<Item = Segment>>(segments: I) -> Self {
+        Self {
+            segments: segments.into_iter().collect_vec().into_boxed_slice(),
+        }
+    }
+
+    pub fn join<I: IntoIterator<Item = Line>>(lines: I) -> Self {
+        let mut joined = Vec::<Segment>::new();
+
+        for line in lines.into_iter() {
+            joined.append(&mut line.iter().collect_vec());
+        }
+
+        Self {
+            segments: joined.into_boxed_slice(),
+        }
+    }
+
+    pub fn separate(l1: Line, l2: Line, width: usize) -> Option<Self> {
+        if l1.len() + l2.len() >= width {
+            return None;
+        }
+
+        let spaces_between = width - (l1.len() + l2.len());
+
+        return Some(Self::join([l1, " ".repeat(spaces_between).into(), l2]));
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = Segment> + 'a {
+        self.segments.iter().map(|x| x.clone())
     }
 
     pub fn len(&self) -> usize {
         self.segments.iter().fold(0, |a, c| a + c.0.len())
     }
 
+    pub fn center(&self, width: usize) -> Self {
+        if self.len() >= width {
+            return self.clone();
+        }
+
+        let spaces = width - self.len();
+        let spaces_left = spaces / 2;
+
+        Self::join([" ".repeat(spaces_left).into(), self.clone()])
+    }
+
     pub fn truncate(&self, width: usize) -> Self {
         let mut new_segments = Vec::new();
         let mut total_len = 0usize;
 
-        for (content, color) in self.segments.iter() {
-            if total_len + content.len() == width {
-                new_segments.push((content.clone(), *color));
+        for seg in self.segments.iter() {
+            if total_len + seg.len() == width {
+                new_segments.push(seg.clone());
                 break;
             }
 
-            if total_len + content.len() > width {
+            if total_len + seg.len() > width {
                 let remaining = width - total_len;
-                let mut new_content = (&content[..remaining - 1]).to_string();
-                new_content.push('…');
-                new_segments.push((new_content, *color));
+                new_segments.push(seg.map_content(|c| {
+                    let mut s = c[..remaining - 1].to_string();
+                    s.push('…');
+                    s
+                }));
                 break;
             }
 
-            new_segments.push((content.clone(), *color));
-            total_len += content.len();
+            total_len += seg.len();
+            new_segments.push(seg.clone());
         }
 
-        Self::new(new_segments.into_boxed_slice())
+        Self::new(new_segments)
     }
 }
 
-impl From<String> for Line {
-    fn from(value: String) -> Self {
-        Self::from((value, Color::Default))
+impl<I: Into<Segment>> From<I> for Line {
+    fn from(value: I) -> Self {
+        Line::new([value.into()])
     }
 }
 
-impl From<(String, Color)> for Line {
-    fn from(value: (String, Color)) -> Self {
-        Self::new(Box::new([value]))
-    }
-}
-
-impl FromIterator<(String, Color)> for Line {
-    fn from_iter<T: IntoIterator<Item = (String, Color)>>(iter: T) -> Self {
-        Self::new(iter.into_iter().collect_vec().into_boxed_slice())
-    }
-}
-
-impl FromIterator<String> for Line {
-    fn from_iter<T: IntoIterator<Item = String>>(iter: T) -> Self {
-        Self::new(
-            iter.into_iter()
-                .map(|x| (x, Color::Default))
-                .collect_vec()
-                .into_boxed_slice(),
-        )
+impl FromIterator<Segment> for Line {
+    fn from_iter<T: IntoIterator<Item = Segment>>(iter: T) -> Self {
+        Line::new(iter)
     }
 }
