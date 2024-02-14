@@ -165,11 +165,11 @@ where
                 match &result {
                     Continue(Good) => {
                         self.adjust_latest_good(&message.point);
-                        self.invalidate_range(&message.left);
+                        self.invalidate_range(&message.left, Good);
                     }
                     Continue(Bad) => {
                         self.adjust_earliest_bad(&message.point);
-                        self.invalidate_range(&message.right);
+                        self.invalidate_range(&message.right, Bad);
                     }
                     Stop(reason) => {
                         self.failure_message.send(reason.clone());

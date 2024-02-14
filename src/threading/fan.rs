@@ -13,7 +13,7 @@ where
     T: Send + Clone,
 {
     outputs: Arc<RwLock<Vec<Sender<T>>>>,
-    thread: BackgroundLoop,
+    _thread: BackgroundLoop,
     receivers: Mutex<Vec<Pin<Box<Receiver<T>>>>>,
 }
 
@@ -29,7 +29,7 @@ where
         Self {
             outputs,
             receivers: Mutex::new(Vec::new()),
-            thread: BackgroundLoop::spawn(receiver, move |msg| {
+            _thread: BackgroundLoop::spawn(receiver, move |msg| {
                 for snd in outputs_clone.read().unwrap().iter() {
                     let _ = snd.send(msg.clone());
                 }
@@ -59,5 +59,30 @@ where
         // so the reference shouldn't be invalidated until this struct drops,
         // but the returned reference's lifetime is tied to this struct
         unsafe { (receiver_ref as *const Receiver<T>).as_ref().unwrap() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossbeam_channel::unbounded;
+
+    #[test]
+    fn test_fan() {
+        let (send, recv) = unbounded();
+
+        let f = Fan::new(recv);
+
+        let s1 = f.subscribe();
+        let s2 = f.subscribe();
+
+        send.send(1).unwrap();
+        send.send(2).unwrap();
+
+        assert_eq!(s1.recv(), Ok(1));
+        assert_eq!(s1.recv(), Ok(2));
+
+        assert_eq!(s2.recv(), Ok(1));
+        assert_eq!(s2.recv(), Ok(2));
     }
 }

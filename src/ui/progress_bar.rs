@@ -152,16 +152,72 @@ impl UiComponent for ProgressBar {
             return vec![Line::empty(), Line::empty()];
         }
 
-        let mut ret = vec![render_color_bar(
+        let color_bar = render_color_bar(
             &good_ranges,
             &bad_ranges,
             &bounds,
             &active,
             width,
-        )];
+        );
+
+        let mut ret = vec![color_bar.clone(), color_bar];
 
         ret.extend(render_bounds_bar(&bounds, width));
 
         ret
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossbeam_channel::unbounded;
+    use ibig::IBig;
+    use crate::parasect::types::{ParasectPayloadAnswer, ParasectPayloadResult};
+    use crate::parasect::types::ParasectPayloadResult::{Continue, Stop};
+    use crate::test_util::test_util::test_util::r;
+
+    fn start(left: NumericRange, midpoint: IBig, right: NumericRange) -> Event {
+        WorkerMessageSent(WorkerMessage {
+            thread_id: 0,
+            left: left,
+            point: midpoint,
+            right: right,
+            msg_type: Started
+        })
+    }
+
+    fn stop(left: NumericRange, midpoint: IBig, right: NumericRange, result: ParasectPayloadResult) -> Event {
+        WorkerMessageSent(WorkerMessage {
+            thread_id: 0,
+            left: left,
+            point: midpoint,
+            right: right,
+            msg_type: Completed(result)
+        })
+    }
+
+    fn r_invalid(range: NumericRange, answer: ParasectPayloadAnswer) -> Event {
+        RangeInvalidated(range, answer)
+    }
+
+    fn progressbar_with_events<I: IntoIterator<Item = Event>>(
+        initial_range: NumericRange,
+        events: I,
+    ) -> ProgressBar {
+        let (send, recv) = unbounded();
+
+        for e in events.into_iter() {
+            send.send(e).unwrap();
+        }
+
+        ProgressBar::new(initial_range, recv)
+    }
+
+    #[test]
+    fn test_progressbar_state() {
+        let pb = progressbar_with_events(r(0, 40), [
+            WorkerMessageSent()
+        ])
     }
 }

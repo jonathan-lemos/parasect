@@ -182,6 +182,11 @@ impl NumericRangeSet {
         }
     }
 
+    /// Iterates over all ranges in the NumericRangeSet.
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = NumericRange> + 'a {
+        self.range_starts.iter().map(|x| x.1.clone())
+    }
+
     /// Iterates over all ranges in the NumericRangeSet that intersect [low, high] inclusive.
     pub fn iter_range<'a>(
         &'a self,
@@ -316,6 +321,7 @@ impl FromIterator<NumericRange> for NumericRangeSet {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::collections::collect_collection::CollectHashSet;
