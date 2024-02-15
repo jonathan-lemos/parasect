@@ -602,6 +602,16 @@ mod tests {
     }
 
     #[test]
+    fn test_iter() {
+        let mut s = NumericRangeSet::new();
+        s.add(r(1, 3));
+        s.add(r(11, 13));
+        s.add(r(21, 23));
+
+        assert_eq!(s.iter().collect_vec(), vec!(r(1, 3), r(11, 13), r(21, 23)));
+    }
+
+    #[test]
     fn test_iter_range() {
         let mut s = NumericRangeSet::new();
         s.add(r(1, 3));

@@ -296,12 +296,30 @@ impl NumericRange {
         }
     }
 
+    /// Returns a NumericRange with its starting point mutated by the given function.
+    pub fn map_first<F: FnOnce(&IBig) -> IBig>(&self, mapper: F) -> Self {
+        if self.is_empty() {
+            Self::empty()
+        } else {
+            Self::from_endpoints_inclusive(mapper(&self.low), self.high.clone())
+        }
+    }
+
+    /// Returns a NumericRange with its ending point mutated by the given function.
+    pub fn map_last<F: FnOnce(&IBig) -> IBig>(&self, mapper: F) -> Self {
+        if self.is_empty() {
+            Self::empty()
+        } else {
+            Self::from_endpoints_inclusive(self.low.clone(), mapper(&self.high))
+        }
+    }
+
     /// Partitions the range into at most `partitions` partitions of equal length, remainders spread towards the front.
     ///
     /// You will get fewer than `partitions` partitions if the length of the range is lower than the number of partitions. An empty range always partitions into an empty vec.
     ///
     /// Panics if 0 partitions are requested.
-    pub fn partition(&self, partitions: usize) -> Vec<NumericRange> {
+    pub fn partition(&self, partitions: usize) -> Vec<Self> {
         assert_ne!(partitions, 0, "Cannot partition into 0 partitions.");
 
         let mut ptr = unwrap_or!(self.first(), return Vec::new());
@@ -613,6 +631,20 @@ mod tests {
     fn test_len() {
         assert_eq!(empty().len(), ub(0usize));
         assert_eq!(r(1, 10).len(), ub(10usize));
+    }
+
+    #[test]
+    fn test_map_first() {
+        assert_eq!(empty().map_first(|x| x.clone()), empty());
+        assert_eq!(r(1, 1).map_first(|x| x + 1), empty());
+        assert_eq!(r(1, 5).map_first(|x| x + 1), r(2, 5));
+    }
+
+    #[test]
+    fn test_map_last() {
+        assert_eq!(empty().map_first(|x| x.clone()), empty());
+        assert_eq!(r(1, 1).map_last(|x| x - 1), empty());
+        assert_eq!(r(1, 5).map_last(|x| x - 1), r(1, 4));
     }
 
     #[test]
