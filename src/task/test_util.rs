@@ -24,10 +24,11 @@ pub mod test_util {
         }
     }
 
-    #[macro_export]
     macro_rules! assert_result_eq {
         ($a:expr, $b:expr) => {
             assert_eq!($a.to_result(), $b.to_result());
         };
     }
+
+    pub(crate) use assert_result_eq;
 }

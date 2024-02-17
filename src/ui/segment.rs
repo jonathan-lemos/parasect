@@ -1,5 +1,6 @@
 use crate::ui::segment::Color::*;
 use bitflags::bitflags;
+use ibig::{IBig, UBig};
 use termion::{color, style};
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Default)]
@@ -10,6 +11,7 @@ pub enum Color {
     Green,
     Yellow,
     Blue,
+    Magenta,
 }
 
 impl Color {
@@ -20,6 +22,7 @@ impl Color {
             Yellow => print!("{}", color::Fg(color::LightYellow)),
             Green => print!("{}", color::Fg(color::LightGreen)),
             Blue => print!("{}", color::Fg(color::LightBlue)),
+            Magenta => print!("{}", color::Fg(color::LightMagenta)),
         }
     }
 }
@@ -44,6 +47,7 @@ impl Attributes {
     }
 }
 
+/// A segment of (optionally styled) text.
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Debug)]
 pub struct Segment {
     content: String,
@@ -94,15 +98,76 @@ impl Segment {
     }
 }
 
+impl From<&UBig> for Segment {
+    fn from(value: &UBig) -> Self {
+        Self::new(value.to_string(), Default, Attributes::empty())
+    }
+}
+
+impl From<UBig> for Segment {
+    fn from(value: UBig) -> Self {
+        Self::new(value.to_string(), Default, Attributes::empty())
+    }
+}
+
+impl From<usize> for Segment {
+    fn from(value: usize) -> Self {
+        Self::new(value.to_string(), Default, Attributes::empty())
+    }
+}
+
+impl From<&IBig> for Segment {
+    fn from(value: &IBig) -> Self {
+        Self::new(value.to_string(), Default, Attributes::empty())
+    }
+}
+
+impl From<IBig> for Segment {
+    fn from(value: IBig) -> Self {
+        Self::new(value.to_string(), Default, Attributes::empty())
+    }
+}
+
+impl From<&String> for Segment {
+    fn from(value: &String) -> Self {
+        Self::new(value.to_string(), Default, Attributes::empty())
+    }
+}
+
 impl From<&str> for Segment {
     fn from(value: &str) -> Self {
-        Self::from(value.to_string())
+        Self::new(value.to_string(), Default, Attributes::empty())
     }
 }
 
 impl From<String> for Segment {
     fn from(value: String) -> Self {
         Self::new(value, Default, Attributes::empty())
+    }
+}
+
+impl<I: Into<Segment>> From<(I, Color)> for Segment {
+    fn from(value: (I, Color)) -> Self {
+        let mut seg = value.0.into();
+        seg.color = value.1;
+        seg
+    }
+}
+
+impl<I: Into<Segment>> From<(I, Attributes)> for Segment {
+    fn from(value: (I, Attributes)) -> Self {
+        let mut seg = value.0.into();
+        seg.attributes = value.1;
+        seg
+    }
+}
+
+impl<I: Into<Segment>> From<(I, Color, Attributes)> for Segment {
+    fn from(value: (I, Color, Attributes)) -> Self {
+        let mut seg = value.0.into();
+        seg.color = value.1;
+        seg.attributes = value.2;
+        seg
     }
 }
 

@@ -103,7 +103,7 @@ where
 }
 
 mod tests {
-    use crate::assert_result_eq;
+    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::cancellable_message::CancellableMessage;
     use crate::task::cancellable_task::CancellableTask;
     use crate::task::test_util::test_util::ResultLike;

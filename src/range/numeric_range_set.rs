@@ -1,6 +1,5 @@
-use crate::collections::collect_collection::CollectVec;
 use crate::range::numeric_range::{consolidate_range_stream, MaybeSplitNumericRange, NumericRange};
-use crate::unwrap_or;
+use crate::util::macros::unwrap_or;
 use ibig::{IBig, UBig};
 use std::collections::btree_map::{Cursor, CursorMut};
 use std::collections::BTreeMap;
@@ -324,7 +323,7 @@ impl FromIterator<NumericRange> for NumericRangeSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collections::collect_collection::CollectHashSet;
+    use crate::collections::collect_collection::{CollectHashSet, CollectVec};
     use crate::test_util::test_util::test_util::{ib, ub};
     use proptest::collection::vec;
     use proptest::prelude::*;

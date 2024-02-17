@@ -105,7 +105,7 @@ unsafe impl<T> Sync for CancellableMessage<T> where T: Send + Sync {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assert_result_eq;
+    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::test_util::test_util::*;
     use crate::test_util::test_util::test_util::detect_flake;
     use std::thread;

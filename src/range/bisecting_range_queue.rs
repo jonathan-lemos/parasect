@@ -1,6 +1,6 @@
 use crate::range::numeric_range::NumericRange;
 use crate::range::numeric_range_set::NumericRangeSet;
-use crate::unwrap_or;
+use crate::util::macros::unwrap_or;
 use ibig::IBig;
 use std::collections::VecDeque;
 use std::sync::{Mutex, RwLock};

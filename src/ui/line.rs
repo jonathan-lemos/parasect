@@ -1,6 +1,8 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::ui::segment::Segment;
+use crate::ui::ui_component::UiComponent;
 
+/// A line of (optionally styled) text for printing to a TTY.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Line {
     segments: Box<[Segment]>,
@@ -109,6 +111,13 @@ impl Line {
         self.iter().map(|x| x.content()).collect()
     }
 
+    /// Prints the line to stdout.
+    pub fn print(&self) {
+        for seg in self.segments.iter() {
+            seg.print();
+        }
+    }
+
     /// Truncates the line's contents to the given width.
     pub fn truncate(&self, width: usize) -> Self {
         if self.len() <= width {
@@ -121,11 +130,7 @@ impl Line {
         for seg in self.segments.iter() {
             if total_len + seg.len() >= width {
                 let remaining = width - total_len;
-                new_segments.push(seg.map_content(|c| {
-                    let mut s = c[..remaining - 1].to_string();
-                    s.push('…');
-                    s
-                }));
+                new_segments.push(seg.map_content(|c| c[..remaining - 1].to_string() + "…"));
                 break;
             }
 
@@ -139,7 +144,7 @@ impl Line {
 
 impl<I: Into<Segment>> From<I> for Line {
     fn from(value: I) -> Self {
-        Line::new([value.into()])
+        Self::from_iter([value.into()])
     }
 }
 
@@ -149,9 +154,29 @@ impl<I: Into<Segment>> FromIterator<I> for Line {
     }
 }
 
+impl UiComponent for Line {
+    fn render(&self, width: usize, max_height: usize) -> Vec<Line> {
+        if max_height > 0 {
+            vec![self.truncate(width)]
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+/// Makes a Line from zero or more comma-separated Into<Segment>.
+macro_rules! mkline {
+    ($($arg:expr),*) => {
+        Line::from_iter([$(Segment::from($arg),)*])
+    };
+}
+
+pub(crate) use mkline;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::segment::Color::Default;
     use crate::ui::segment::{Attributes, Color};
 
     #[test]
@@ -360,6 +385,14 @@ mod tests {
         ]);
 
         assert_eq!(
+            line.truncate(9),
+            Line::from_iter([
+                Segment::new("sus".into(), Color::Red, Attributes::Blink),
+                Segment::new("amogus".into(), Color::Green, Attributes::Bold),
+            ])
+        );
+
+        assert_eq!(
             line.truncate(6),
             Line::from_iter([
                 Segment::new("sus".into(), Color::Red, Attributes::Blink),
@@ -379,5 +412,24 @@ mod tests {
             line.truncate(3),
             Line::from_iter([Segment::new("su…".into(), Color::Red, Attributes::Blink),])
         );
+    }
+
+    #[test]
+    fn test_mkline() {
+        let m = mkline!(
+            ("sus", Color::Red),
+            " ",
+            ("amogus", Color::Green, Attributes::Bold)
+        );
+        let segs = [
+            Segment::new("sus".into(), Color::Red, Attributes::empty()),
+            Segment::new(" ".into(), Default, Attributes::empty()),
+            Segment::new("amogus".into(), Color::Green, Attributes::Bold),
+        ]
+        .into_iter()
+        .collect_vec()
+        .into_boxed_slice();
+
+        assert_eq!(m.segments, segs)
     }
 }

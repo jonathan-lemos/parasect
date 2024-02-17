@@ -1,2 +1,2 @@
 pub mod background_loop;
-mod fan;
+pub mod fan;

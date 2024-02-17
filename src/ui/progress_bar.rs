@@ -10,12 +10,18 @@ use crate::threading::background_loop::BackgroundLoopBehavior::DontCancel;
 use crate::ui::line::Line;
 use crate::ui::segment::{Attributes, Color, Segment};
 use crate::ui::ui_component::UiComponent;
-use crate::unwrap_or;
+use crate::util::macros::unwrap_or;
 use crossbeam_channel::Receiver;
 use std::sync::{Arc, RwLock};
 
+/// Displays the progress of the parasect based on state inferred from the given event stream.
+///
+/// * With at least 4 `max_height`, displays a 2-high "color bar", colors representing the parasect state, with a 2-high "bounds bar" below it, displaying the minimum and maximum of the current search space. The cells of the color bar also blink when there is at least one worker currently active in that range.
+/// * With 3 `max_height`, gets rid of the carats in the bounds bar.
+/// * With 2 `max_height`, also reduces the color bar to 1 height.
+/// * With 1 `max_height`, only displays the bounds bar numbers.
 pub struct ProgressBar {
-    receiver_listener: BackgroundLoop,
+    _receiver_listener: BackgroundLoop,
     good_ranges: Arc<RwLock<NumericRangeSet>>,
     bad_ranges: Arc<RwLock<NumericRangeSet>>,
     valid_ranges: Arc<RwLock<NumericRangeSet>>,
@@ -23,7 +29,7 @@ pub struct ProgressBar {
 }
 
 impl ProgressBar {
-    pub fn new(initial_range: NumericRange, event_receiver: Receiver<Event>) -> Self {
+    pub fn new(event_receiver: Receiver<Event>, initial_range: NumericRange) -> Self {
         let good_ranges = Arc::new(RwLock::new(NumericRangeSet::new()));
         let bad_ranges = Arc::new(RwLock::new(NumericRangeSet::new()));
         let active = Arc::new(RwLock::new(NumericRangeSet::new()));
@@ -41,7 +47,7 @@ impl ProgressBar {
             bad_ranges,
             active,
             valid_ranges,
-            receiver_listener: BackgroundLoop::spawn(event_receiver, move |event| {
+            _receiver_listener: BackgroundLoop::spawn(event_receiver, move |event| {
                 match event {
                     RangeInvalidated(r, Good) => {
                         valid_ranges_clone.write().unwrap().remove(&r);
@@ -75,12 +81,12 @@ impl ProgressBar {
     }
 }
 
-impl Drop for ProgressBar {
-    fn drop(&mut self) {
-        self.receiver_listener.cancel();
-    }
-}
-
+/// Gets the color of a cell from the given range.
+///
+/// * Blue - Completely unknown.
+/// * Yellow - Partially known, or a mix of good and bad.
+/// * Green - All good.
+/// * Red - All bad.
 fn range_color(
     good_ranges: &NumericRangeSet,
     bad_ranges: &NumericRangeSet,
@@ -123,7 +129,7 @@ fn render_color_bar(
     Line::new(segments)
 }
 
-fn render_bounds_bar(bounds: &NumericRange, width: usize) -> Vec<Line> {
+fn render_bounds_bar(bounds: &NumericRange, width: usize, max_height: usize) -> Vec<Line> {
     let (low, high) = unwrap_or!(bounds.as_tuple(), return Vec::new());
     let (low_s, high_s) = (low.to_string(), high.to_string());
 
@@ -137,11 +143,15 @@ fn render_bounds_bar(bounds: &NumericRange, width: usize) -> Vec<Line> {
         return Vec::new()
     );
 
-    return vec![l1, l2];
+    match max_height {
+        0 => Vec::new(),
+        1 => vec![l2],
+        _ => vec![l1, l2],
+    }
 }
 
 impl UiComponent for ProgressBar {
-    fn render(&self, width: usize) -> Vec<Line> {
+    fn render(&self, width: usize, max_height: usize) -> Vec<Line> {
         let good_ranges = self.good_ranges.read().unwrap();
         let bad_ranges = self.bad_ranges.read().unwrap();
         let active = self.active.read().unwrap();
@@ -154,9 +164,25 @@ impl UiComponent for ProgressBar {
 
         let color_bar = render_color_bar(&good_ranges, &bad_ranges, &bounds, &active, width);
 
-        let mut ret = vec![color_bar.clone(), color_bar];
+        let mut ret = Vec::new();
 
-        ret.extend(render_bounds_bar(&bounds, width));
+        for _ in 0..match max_height {
+            0..=1 => 0,
+            2 => 1,
+            _ => 2,
+        } {
+            ret.push(color_bar.clone());
+        }
+
+        ret.extend(render_bounds_bar(
+            &bounds,
+            width,
+            match max_height {
+                0 => 0,
+                1..=3 => 1,
+                _ => 2,
+            },
+        ));
 
         ret
     }
@@ -169,6 +195,7 @@ mod tests {
     use crate::parasect::types::ParasectPayloadResult::*;
     use crate::parasect::types::{ParasectPayloadAnswer, ParasectPayloadResult};
     use crate::test_util::test_util::test_util::{empty, ib, r};
+    use crate::ui::line::mkline;
     use crossbeam_channel::unbounded;
     use ibig::IBig;
     use std::thread;
@@ -213,7 +240,7 @@ mod tests {
             send.send(e).unwrap();
         }
 
-        let pb = ProgressBar::new(initial_range, recv.clone());
+        let pb = ProgressBar::new(recv.clone(), initial_range);
         while !recv.is_empty() {
             thread::sleep(Duration::from_millis(2));
         }
@@ -237,7 +264,7 @@ mod tests {
     #[test]
     fn test_progressbar_bar() {
         let (_send, recv) = unbounded();
-        let mut pb = ProgressBar::new(empty(), recv);
+        let mut pb = ProgressBar::new(recv, empty());
 
         pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
         pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
@@ -251,16 +278,16 @@ mod tests {
             r(35, 39),
         ]);
 
-        let color_bar = Line::new([
-            Segment::new("█".into(), Color::Blue, Attributes::empty()),
-            Segment::new("█".into(), Color::Green, Attributes::empty()),
-            Segment::new("█".into(), Color::Blue, Attributes::Blink),
-            Segment::new("█".into(), Color::Yellow, Attributes::empty()),
-            Segment::new("█".into(), Color::Yellow, Attributes::Blink),
-            Segment::new("█".into(), Color::Blue, Attributes::empty()),
-            Segment::new("██".into(), Color::Red, Attributes::empty()),
-            Segment::new("█".into(), Color::Blue, Attributes::empty()),
-        ]);
+        let color_bar = mkline!(
+            ("█", Color::Blue, Attributes::empty()),
+            ("█", Color::Green, Attributes::empty()),
+            ("█", Color::Blue, Attributes::Blink),
+            ("█", Color::Yellow, Attributes::empty()),
+            ("█", Color::Yellow, Attributes::Blink),
+            ("█", Color::Blue, Attributes::empty()),
+            ("██", Color::Red, Attributes::empty()),
+            ("█", Color::Blue, Attributes::empty())
+        );
 
         let expected = [
             color_bar.clone(),
@@ -268,28 +295,141 @@ mod tests {
             "^       ^".into(),
             "-5     39".into(),
         ];
-        let actual = pb.render(9);
+        let actual = pb.render(9, 4);
 
         assert_eq!(expected.into_iter().collect_vec(), actual);
     }
 
     #[test]
+    fn test_progressbar_bar_3() {
+        let (_send, recv) = unbounded();
+        let mut pb = ProgressBar::new(recv, empty());
+
+        pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
+        pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
+        pb.active = test_ranges([r(6, 6), r(18, 18)]);
+        pb.valid_ranges = test_ranges([
+            r(-5, -1),
+            r(5, 9),
+            r(13, 13),
+            r(18, 18),
+            r(20, 24),
+            r(35, 39),
+        ]);
+
+        let color_bar = mkline!(
+            ("█", Color::Blue, Attributes::empty()),
+            ("█", Color::Green, Attributes::empty()),
+            ("█", Color::Blue, Attributes::Blink),
+            ("█", Color::Yellow, Attributes::empty()),
+            ("█", Color::Yellow, Attributes::Blink),
+            ("█", Color::Blue, Attributes::empty()),
+            ("██", Color::Red, Attributes::empty()),
+            ("█", Color::Blue, Attributes::empty())
+        );
+
+        let expected = [color_bar.clone(), color_bar.clone(), "-5     39".into()];
+        let actual = pb.render(9, 4);
+
+        assert_eq!(expected.into_iter().collect_vec(), actual);
+    }
+
+    #[test]
+    fn test_progressbar_bar_2() {
+        let (_send, recv) = unbounded();
+        let mut pb = ProgressBar::new(recv, empty());
+
+        pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
+        pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
+        pb.active = test_ranges([r(6, 6), r(18, 18)]);
+        pb.valid_ranges = test_ranges([
+            r(-5, -1),
+            r(5, 9),
+            r(13, 13),
+            r(18, 18),
+            r(20, 24),
+            r(35, 39),
+        ]);
+
+        let color_bar = mkline!(
+            ("█", Color::Blue, Attributes::empty()),
+            ("█", Color::Green, Attributes::empty()),
+            ("█", Color::Blue, Attributes::Blink),
+            ("█", Color::Yellow, Attributes::empty()),
+            ("█", Color::Yellow, Attributes::Blink),
+            ("█", Color::Blue, Attributes::empty()),
+            ("██", Color::Red, Attributes::empty()),
+            ("█", Color::Blue, Attributes::empty())
+        );
+
+        let expected = [color_bar.clone(), "-5     39".into()];
+        let actual = pb.render(9, 2);
+
+        assert_eq!(expected.into_iter().collect_vec(), actual);
+    }
+
+    #[test]
+    fn test_progressbar_bar_1() {
+        let (_send, recv) = unbounded();
+        let mut pb = ProgressBar::new(recv, empty());
+
+        pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
+        pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
+        pb.active = test_ranges([r(6, 6), r(18, 18)]);
+        pb.valid_ranges = test_ranges([
+            r(-5, -1),
+            r(5, 9),
+            r(13, 13),
+            r(18, 18),
+            r(20, 24),
+            r(35, 39),
+        ]);
+
+        let expected = [Line::from("-5     39")];
+        let actual = pb.render(9, 1);
+
+        assert_eq!(expected.into_iter().collect_vec(), actual);
+    }
+
+    #[test]
+    fn test_progressbar_bar_0() {
+        let (_send, recv) = unbounded();
+        let mut pb = ProgressBar::new(recv, empty());
+
+        pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
+        pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
+        pb.active = test_ranges([r(6, 6), r(18, 18)]);
+        pb.valid_ranges = test_ranges([
+            r(-5, -1),
+            r(5, 9),
+            r(13, 13),
+            r(18, 18),
+            r(20, 24),
+            r(35, 39),
+        ]);
+
+        let actual = pb.render(9, 1);
+
+        assert_eq!(Vec::<Line>::new(), actual);
+    }
+
+    #[test]
     fn test_progressbar_no_ranges_no_bar() {
         let (_send, recv) = unbounded();
-        let mut pb = ProgressBar::new(empty(), recv);
+        let mut pb = ProgressBar::new(recv, empty());
 
         pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
         pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
         pb.active = test_ranges([r(6, 6), r(18, 18)]);
         pb.valid_ranges = test_ranges([]);
 
-        assert_eq!(pb.render(9), Vec::new());
+        assert_eq!(pb.render(9, 4), Vec::new());
     }
 
     #[test]
     fn test_progressbar_truncates_nums_when_too_small() {
         let (_send, recv) = unbounded();
-        let mut pb = ProgressBar::new(empty(), recv);
+        let mut pb = ProgressBar::new(recv, empty());
 
         pb.good_ranges = test_ranges([r(0, 4), r(10, 12), r(14, 17)]);
         pb.bad_ranges = test_ranges([r(19, 19), r(25, 34), r(40, 44)]);
@@ -306,7 +446,7 @@ mod tests {
         let color_bar = Line::new([Segment::new("█".into(), Color::Yellow, Attributes::Blink)]);
 
         let expected = [color_bar.clone(), color_bar.clone()];
-        let actual = pb.render(1);
+        let actual = pb.render(1, 4);
 
         assert_eq!(expected.into_iter().collect_vec(), actual);
     }

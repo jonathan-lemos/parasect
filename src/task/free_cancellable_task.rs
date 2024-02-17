@@ -37,7 +37,7 @@ impl<T: Send + Sync> FreeCancellableTask<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assert_result_eq;
+    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::test_util::test_util::ResultLike;
 
     #[test]
