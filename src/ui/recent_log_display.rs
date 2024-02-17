@@ -15,7 +15,6 @@ use crate::ui::segment::{Attributes, Color, Segment};
 use crate::ui::ui_component::UiComponent;
 use crossbeam_channel::Receiver;
 use lru::LruCache;
-use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Debug)]
@@ -32,7 +31,7 @@ enum LogType {
 /// Produces `max(max_height, logs.len())` lines when rendered.
 pub struct RecentLogDisplay {
     lru_logs: Arc<RwLock<LruCache<LogType, Event>>>,
-    event_listener: BackgroundLoop,
+    _event_listener: BackgroundLoop,
 }
 
 impl RecentLogDisplay {
@@ -59,11 +58,15 @@ impl RecentLogDisplay {
     fn make_log_message_short(event: &Event) -> Line {
         match event {
             WorkerMessageSent(wm) => match &wm.msg_type {
-                Started => mkline!(wm.thread_id, ": ", (&wm.point, Color::Blue)),
+                Started => mkline!(
+                    wm.thread_id,
+                    ": ",
+                    (&wm.point, Color::Blue, Attributes::Bold)
+                ),
                 Completed(c) => mkline!(
                     wm.thread_id,
                     ": ",
-                    (&wm.point, Color::Blue),
+                    (&wm.point, Color::Blue, Attributes::Bold),
                     " ",
                     Self::result_segment(&c)
                 ),
@@ -72,10 +75,17 @@ impl RecentLogDisplay {
             ParasectCancelled(reason) => mkline!(
                 ("Aborting", Color::Magenta, Attributes::Bold),
                 " ",
-                (format!("({})", reason), Color::Magenta, Attributes::Bold)
+                (format!("({})", reason), Color::Magenta)
             ),
             RangeInvalidated(r, ans) => {
-                mkline!(r.to_string(), ": known ", Self::answer_segment(&ans))
+                mkline!(
+                    "[",
+                    (r.first().unwrap(), Color::Blue),
+                    ", ",
+                    (r.last().unwrap(), Color::Blue),
+                    "]: known ",
+                    Self::answer_segment(&ans)
+                )
             }
         }
     }
@@ -176,7 +186,7 @@ impl RecentLogDisplay {
 
         Self {
             lru_logs,
-            event_listener: BackgroundLoop::spawn(event_receiver, move |event| {
+            _event_listener: BackgroundLoop::spawn(event_receiver, move |event| {
                 let mut lru_write = lru_logs_clone.write().unwrap();
 
                 let key = Self::event_log_type(&event);
@@ -207,6 +217,9 @@ impl UiComponent for RecentLogDisplay {
 mod tests {
     use super::*;
     use crate::test_util::test_util::test_util::{ib, r};
+    use crossbeam_channel::unbounded;
+    use std::thread;
+    use std::time::Duration;
 
     pub fn test_wm() -> WorkerMessage {
         WorkerMessage {
@@ -218,11 +231,27 @@ mod tests {
         }
     }
 
+    pub fn log_display_from_events<I: IntoIterator<Item = Event>>(events: I) -> RecentLogDisplay {
+        let (send, recv) = unbounded();
+
+        for ev in events {
+            send.send(ev).unwrap();
+        }
+
+        let log_display = RecentLogDisplay::new(recv.clone());
+
+        while !recv.is_empty() {
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        log_display
+    }
+
     #[test]
     pub fn test_make_log_message_short() {
         assert_eq!(
             RecentLogDisplay::make_log_message_short(&WorkerMessageSent(test_wm())),
-            mkline!("420: ", ("69", Color::Blue))
+            mkline!("420: ", ("69", Color::Blue, Attributes::Bold))
         );
 
         assert_eq!(
@@ -232,7 +261,7 @@ mod tests {
             })),
             mkline!(
                 "420: ",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " ",
                 ("Good", Color::Green, Attributes::Bold)
             )
@@ -245,7 +274,7 @@ mod tests {
             })),
             mkline!(
                 "420: ",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " ",
                 ("Bad", Color::Red, Attributes::Bold)
             )
@@ -258,7 +287,7 @@ mod tests {
             })),
             mkline!(
                 "420: ",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " ",
                 ("Abort (nope)", Color::Magenta, Attributes::Bold)
             )
@@ -306,7 +335,7 @@ mod tests {
                 "Thread 420: ",
                 ("working", Color::Yellow),
                 " x=",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " range=[",
                 ("66", Color::Blue),
                 ", ",
@@ -326,7 +355,7 @@ mod tests {
                 " status=",
                 ("Good", Color::Green, Attributes::Bold),
                 " x=",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " range=[",
                 ("66", Color::Blue),
                 ", ",
@@ -346,7 +375,7 @@ mod tests {
                 " status=",
                 ("Bad", Color::Red, Attributes::Bold),
                 " x=",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " range=[",
                 ("66", Color::Blue),
                 ", ",
@@ -366,7 +395,7 @@ mod tests {
                 " status=",
                 ("Abort (nope)", Color::Magenta, Attributes::Bold),
                 " x=",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " range=[",
                 ("66", Color::Blue),
                 ", ",
@@ -417,7 +446,7 @@ mod tests {
                 "Thread 420: ",
                 ("working", Color::Yellow),
                 " x=",
-                ("69", Color::Blue),
+                ("69", Color::Blue, Attributes::Bold),
                 " range=[",
                 ("66", Color::Blue),
                 ", ",
@@ -428,7 +457,7 @@ mod tests {
 
         assert_eq!(
             RecentLogDisplay::make_log_message(&WorkerMessageSent(test_wm()), 10),
-            mkline!("420: ", ("69", Color::Blue))
+            mkline!("420: ", ("69", Color::Blue, Attributes::Bold))
         );
 
         assert_eq!(
@@ -457,5 +486,168 @@ mod tests {
         assert_ne!(t1, r1);
         assert_ne!(t1, c1);
         assert_ne!(r1, c1);
+    }
+
+    #[test]
+    pub fn test_new() {
+        let evs = [
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 0,
+                left: r(0, 19),
+                point: ib(20),
+                right: r(21, 40),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 1,
+                left: r(0, 9),
+                point: ib(10),
+                right: r(11, 19),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 2,
+                left: r(20, 29),
+                point: ib(30),
+                right: r(31, 40),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 0,
+                left: r(0, 19),
+                point: ib(20),
+                right: r(21, 40),
+                msg_type: Completed(Continue(Bad)),
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 1,
+                left: r(0, 9),
+                point: ib(10),
+                right: r(11, 19),
+                msg_type: Completed(Continue(Good)),
+            }),
+            RangeInvalidated(r(20, 40), Bad),
+            RangeInvalidated(r(0, 10), Good),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 2,
+                left: r(20, 29),
+                point: ib(30),
+                right: r(31, 40),
+                msg_type: Cancelled,
+            }),
+        ];
+
+        let log_display = log_display_from_events(evs.clone());
+        thread::sleep(Duration::from_millis(5));
+
+        let logs = log_display
+            .lru_logs
+            .read()
+            .unwrap()
+            .iter()
+            .map(|x| (x.0.clone(), x.1.clone()))
+            .collect_vec();
+
+        let expected = [
+            (Thread(2), evs[7].clone()),
+            (RangeInvalidation, evs[6].clone()),
+            (Thread(1), evs[4].clone()),
+            (Thread(0), evs[3].clone()),
+        ];
+
+        assert_eq!(logs, expected.into_iter().collect_vec());
+    }
+
+    #[test]
+    pub fn test_render() {
+        let evs = [
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 0,
+                left: r(0, 19),
+                point: ib(20),
+                right: r(21, 40),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 1,
+                left: r(0, 9),
+                point: ib(10),
+                right: r(11, 19),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 2,
+                left: r(20, 29),
+                point: ib(30),
+                right: r(31, 40),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 0,
+                left: r(0, 19),
+                point: ib(20),
+                right: r(21, 40),
+                msg_type: Completed(Continue(Bad)),
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 1,
+                left: r(0, 9),
+                point: ib(10),
+                right: r(11, 19),
+                msg_type: Completed(Continue(Good)),
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 2,
+                left: r(20, 29),
+                point: ib(30),
+                right: r(31, 40),
+                msg_type: Cancelled,
+            }),
+            RangeInvalidated(r(20, 40), Bad),
+            RangeInvalidated(r(0, 10), Good),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 0,
+                left: r(11, 14),
+                point: ib(15),
+                right: r(16, 19),
+                msg_type: Started,
+            }),
+            WorkerMessageSent(WorkerMessage {
+                thread_id: 0,
+                left: r(11, 14),
+                point: ib(15),
+                right: r(16, 19),
+                msg_type: Completed(Stop("nope".into())),
+            }),
+            ParasectCancelled("nope".into()),
+        ];
+
+        let log_display = log_display_from_events(evs.clone());
+        thread::sleep(Duration::from_millis(5));
+
+        let rows = log_display.render(30, 3);
+        let expected = [
+            mkline!(
+                ("Parasect cancelled", Color::Magenta, Attributes::Bold),
+                ": ",
+                ("nope", Color::Magenta)
+            ),
+            mkline!(
+                "0: ",
+                ("15", Color::Blue, Attributes::Bold),
+                " ",
+                ("Abort (nope)", Color::Magenta, Attributes::Bold)
+            ),
+            mkline!(
+                "[",
+                ("0", Color::Blue),
+                ", ",
+                ("10", Color::Blue),
+                "] known to be ",
+                ("Good", Color::Green, Attributes::Bold)
+            ),
+        ];
+
+        assert_eq!(expected.into_iter().collect_vec(), rows);
     }
 }

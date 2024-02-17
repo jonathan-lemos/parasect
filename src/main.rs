@@ -1,5 +1,7 @@
 #![feature(btree_cursors)] // needed for numeric_range_set
 
+extern crate core;
+
 mod collections;
 mod parasect;
 mod range;

@@ -329,7 +329,7 @@ mod tests {
         );
 
         let expected = [color_bar.clone(), color_bar.clone(), "-5     39".into()];
-        let actual = pb.render(9, 4);
+        let actual = pb.render(9, 3);
 
         assert_eq!(expected.into_iter().collect_vec(), actual);
     }
@@ -408,7 +408,7 @@ mod tests {
             r(35, 39),
         ]);
 
-        let actual = pb.render(9, 1);
+        let actual = pb.render(9, 0);
 
         assert_eq!(Vec::<Line>::new(), actual);
     }

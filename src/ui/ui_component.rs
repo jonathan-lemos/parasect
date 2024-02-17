@@ -10,6 +10,7 @@ impl<C: UiComponent> UiComponent for &[C] {
     fn render(&self, width: usize, max_height: usize) -> Vec<Line> {
         self.iter()
             .flat_map(|x| x.render(width, max_height))
+            .take(max_height)
             .collect_vec()
     }
 }

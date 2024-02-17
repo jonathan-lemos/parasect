@@ -13,11 +13,12 @@ use std::io::stdout;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 use termion::is_tty;
 
 /// Instantiation of this struct renders a full-fledged TUI for TTY interfaces based on the given `Event` stream. Use `NoTtyUi` for a traditional "stream of logs" interface.
 ///
-/// There should be one and only one instance of either `TtyUi` or `NoTtyUi` at any time.
+/// There should be no more than one instance of either `TtyUi` or `NoTtyUi` at any time.
 ///
 /// The TUI stops rendering when this struct is dropped.
 pub struct TtyUi {
@@ -47,7 +48,7 @@ impl TtyUi {
     fn render_screen(components: &[&dyn UiComponent], width: usize, height: usize) -> Vec<Line> {
         let mut lines = Vec::<Line>::new();
 
-        for (component, n_left) in components.into_iter().zip((components.len() - 1)..0) {
+        for (component, n_left) in components.into_iter().zip((0..components.len()).rev()) {
             if lines.len() >= height {
                 break;
             }
@@ -112,7 +113,10 @@ impl TtyUi {
 
         thread::spawn(move || {
             while !cancel_clone.load(Ordering::Relaxed) {
-                let (width, height) = unwrap_or!(Self::get_bounds(), continue);
+                let (width, height) = unwrap_or!(Self::get_bounds(), {
+                    thread::sleep(Duration::from_millis(500));
+                    continue;
+                });
 
                 let screen = Self::render_screen(
                     &[
@@ -127,6 +131,7 @@ impl TtyUi {
                 let screen_deduped = Self::remove_cached(screen, &line_cache_clone);
 
                 Self::print_deduped_lines(&screen_deduped);
+                thread::sleep(Duration::from_millis(500));
             }
         });
 
@@ -146,5 +151,65 @@ impl TtyUi {
 impl Drop for TtyUi {
     fn drop(&mut self) {
         self.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::collections::collect_collection::CollectHashSet;
+    use crate::ui::line::mkline;
+    use crate::ui::segment::Color;
+
+    #[test]
+    fn test_render_screen_1() {
+        let c1 = mkline!("sussus amogus");
+        let c2 = [mkline!(("bar", Color::Green)), mkline!("foo")];
+
+        let rendered = TtyUi::render_screen(&[&c1, &c2.as_slice()], 3, 2);
+        let expected = [mkline!("su…"), mkline!(("bar", Color::Green))];
+
+        assert_eq!(expected.into_iter().collect_vec(), rendered);
+    }
+
+    #[test]
+    fn test_render_screen_2() {
+        let c1 = [mkline!("a"), mkline!("b"), mkline!("c"), mkline!("d")];
+        let c2 = [mkline!("e"), mkline!("f"), mkline!("g")];
+        let c3 = [mkline!("h"), mkline!("i")];
+
+        let rendered =
+            TtyUi::render_screen(&[&c1.as_slice(), &c2.as_slice(), &c3.as_slice()], 3, 7);
+        let expected = [
+            mkline!("a"),
+            mkline!("b"),
+            mkline!("c"),
+            mkline!("d"),
+            mkline!("e"),
+            mkline!("f"),
+            mkline!("h"),
+        ];
+
+        assert_eq!(expected.into_iter().collect_vec(), rendered);
+    }
+
+    #[test]
+    fn test_remove_cached() {
+        let cache = [(1, mkline!("foo")), (2, mkline!("bar"))]
+            .into_iter()
+            .collect();
+
+        let input = [mkline!("foo"), mkline!("q"), mkline!("sus")];
+
+        let removed = TtyUi::remove_cached(input, &cache);
+
+        let expected_removed = [None, Some(mkline!("q")), Some(mkline!("sus"))];
+        let expected_new_cache = [(1, mkline!("foo")), (2, mkline!("q")), (3, mkline!("sus"))];
+
+        assert_eq!(expected_removed.into_iter().collect_vec(), removed);
+        assert_eq!(
+            cache.into_iter().collect_hashset(),
+            expected_new_cache.into_iter().collect_hashset()
+        );
     }
 }

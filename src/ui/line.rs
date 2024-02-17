@@ -164,10 +164,10 @@ impl UiComponent for Line {
     }
 }
 
-/// Makes a Line from zero or more comma-separated Into<Segment>.
+/// Makes a Line from zero or more comma-separated `Into<Segment>`.
 macro_rules! mkline {
     ($($arg:expr),*) => {
-        Line::from_iter([$(Segment::from($arg),)*])
+        Line::from_iter([$(crate::ui::segment::Segment::from($arg),)*])
     };
 }
 
@@ -193,13 +193,13 @@ mod tests {
 
     #[test]
     pub fn test_new_condenses() {
-        let line = Line::new([
-            Segment::new("amog".into(), Color::Blue, Attributes::Bold),
-            Segment::new("us".into(), Color::Blue, Attributes::Bold),
-            Segment::new("sus".into(), Color::Green, Attributes::Blink),
-            Segment::new("amog".into(), Color::Red, Attributes::Bold),
-            Segment::new("us".into(), Color::Red, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("amog", Color::Blue, Attributes::Bold),
+            ("us", Color::Blue, Attributes::Bold),
+            ("sus", Color::Green, Attributes::Blink),
+            ("amog", Color::Red, Attributes::Bold),
+            ("us", Color::Red, Attributes::Bold)
+        );
 
         assert_eq!(
             line.segments,
@@ -215,40 +215,32 @@ mod tests {
 
     #[test]
     pub fn test_separate() {
-        let line1 = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line1 = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
-        let line2 = Line::from(Segment::new(
-            "sus".into(),
-            Color::Green,
-            Attributes::empty(),
-        ));
+        let line2 = Line::from(("sus", Color::Green, Attributes::empty()));
 
         assert_eq!(
             Line::separate(line1, line2, 12),
-            Some(Line::from_iter([
-                Segment::new("amog".into(), Color::Red, Attributes::Blink),
-                Segment::new("us".into(), Color::Green, Attributes::Bold),
-                "   ".into(),
-                Segment::new("sus".into(), Color::Green, Attributes::empty())
-            ]))
+            Some(mkline!(
+                ("amog", Color::Red, Attributes::Blink),
+                ("us", Color::Green, Attributes::Bold),
+                "   ",
+                ("sus", Color::Green, Attributes::empty())
+            ))
         )
     }
 
     #[test]
     pub fn test_separate_too_close() {
-        let line1 = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line1 = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
-        let line2 = Line::from(Segment::new(
-            "sus".into(),
-            Color::Green,
-            Attributes::empty(),
-        ));
+        let line2 = Line::from(("sus", Color::Green, Attributes::empty()));
 
         assert_eq!(Line::separate(line1, line2, 9), None)
     }
@@ -267,27 +259,27 @@ mod tests {
 
     #[test]
     pub fn test_center_formatted() {
-        let line = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
         assert_eq!(
             line.center(9),
-            Line::from_iter([
-                " ".into(),
-                Segment::new("amog".into(), Color::Red, Attributes::Blink),
-                Segment::new("us".into(), Color::Green, Attributes::Bold),
-            ])
+            mkline!(
+                " ",
+                ("amog", Color::Red, Attributes::Blink),
+                ("us", Color::Green, Attributes::Bold)
+            )
         );
     }
 
     #[test]
     pub fn test_center_formatted_eq_len() {
-        let line = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
         assert_eq!(line.center(6), line);
     }
@@ -306,10 +298,10 @@ mod tests {
 
     #[test]
     pub fn test_len_formatted() {
-        let line = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
         assert_eq!(line.len(), 6);
     }
@@ -336,30 +328,30 @@ mod tests {
 
         assert_eq!(
             line.pad(9),
-            Line::from_iter([
-                Segment::new("amog".into(), Color::Red, Attributes::Blink),
-                Segment::new("us".into(), Color::Green, Attributes::Bold),
-                "   ".into(),
-            ])
+            mkline!(
+                ("amog", Color::Red, Attributes::Blink),
+                ("us", Color::Green, Attributes::Bold),
+                "   "
+            )
         );
     }
 
     #[test]
     pub fn test_pad_eq_formatted() {
-        let line = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
         assert_eq!(line.pad(6), line);
     }
 
     #[test]
     pub fn test_plaintext() {
-        let line = Line::from_iter([
-            Segment::new("amog".into(), Color::Red, Attributes::Blink),
-            Segment::new("us".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("amog", Color::Red, Attributes::Blink),
+            ("us", Color::Green, Attributes::Bold)
+        );
 
         assert_eq!(line.plaintext(), "amogus");
     }
@@ -379,38 +371,38 @@ mod tests {
 
     #[test]
     pub fn test_truncate_formatted() {
-        let line = Line::from_iter([
-            Segment::new("sus".into(), Color::Red, Attributes::Blink),
-            Segment::new("amogus".into(), Color::Green, Attributes::Bold),
-        ]);
+        let line = mkline!(
+            ("sus", Color::Red, Attributes::Blink),
+            ("amogus", Color::Green, Attributes::Bold)
+        );
 
         assert_eq!(
             line.truncate(9),
-            Line::from_iter([
-                Segment::new("sus".into(), Color::Red, Attributes::Blink),
-                Segment::new("amogus".into(), Color::Green, Attributes::Bold),
-            ])
+            mkline!(
+                ("sus", Color::Red, Attributes::Blink),
+                ("amogus", Color::Green, Attributes::Bold)
+            )
         );
 
         assert_eq!(
             line.truncate(6),
-            Line::from_iter([
-                Segment::new("sus".into(), Color::Red, Attributes::Blink),
-                Segment::new("am…".into(), Color::Green, Attributes::Bold),
-            ])
+            mkline!(
+                ("sus", Color::Red, Attributes::Blink),
+                ("am…", Color::Green, Attributes::Bold)
+            )
         );
 
         assert_eq!(
             line.truncate(4),
-            Line::from_iter([
-                Segment::new("sus".into(), Color::Red, Attributes::Blink),
-                Segment::new("…".into(), Color::Green, Attributes::Bold),
-            ])
+            mkline!(
+                ("sus", Color::Red, Attributes::Blink),
+                ("…", Color::Green, Attributes::Bold)
+            )
         );
 
         assert_eq!(
             line.truncate(3),
-            Line::from_iter([Segment::new("su…".into(), Color::Red, Attributes::Blink),])
+            mkline!(("su…", Color::Red, Attributes::Blink))
         );
     }
 
