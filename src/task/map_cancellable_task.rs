@@ -3,7 +3,7 @@ use crate::task::map_cancellable_task::ValueState::*;
 use std::cell::{Cell, UnsafeCell};
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::{Arc, RwLock};
+use std::sync::{OnceLock, RwLock};
 
 enum ValueState<T: Send> {
     Unset,
@@ -22,7 +22,7 @@ where
     told_phantom: PhantomData<TOld>,
     mapper: Cell<Option<Mapper>>,
     inner_task: InnerTask,
-    value_cell: RwLock<UnsafeCell<ValueState<TNew>>>,
+    inner_value: OnceLock<Option<TNew>>,
 }
 
 impl<TOld, TNew, Mapper, InnerTask> MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
@@ -38,7 +38,7 @@ where
             told_phantom: PhantomData,
             mapper: Cell::new(Some(mapper)),
             inner_task: inner,
-            value_cell: RwLock::new(UnsafeCell::new(Unset)),
+            inner_value: OnceLock::new(),
         }
     }
 }
@@ -56,36 +56,9 @@ where
     }
 
     fn join(&self) -> Option<&TNew> {
-        {
-            let read_lock = self.value_cell.read().unwrap();
-
-            // unsafe needed to get a reference not tied to the lifetime of the guard
-            let immut_ref = unsafe { read_lock.get().as_ref().unwrap() };
-
-            match immut_ref {
-                Set(v) => return Some(v),
-                Cancelled => return None,
-                Unset => {}
-            }
-        }
-        {
-            let mut write_lock = self.value_cell.write().unwrap();
-
-            if let Some(mapper) = self.mapper.take() {
-                let mut_ref = write_lock.get_mut();
-                *mut_ref = match self.inner_task.join() {
-                    Some(v) => Set(mapper(v)),
-                    None => Cancelled,
-                };
-            }
-
-            // unsafe needed to get a reference not tied to the lifetime of the guard
-            match unsafe { write_lock.get().as_ref().unwrap() } {
-                Set(v) => Some(v),
-                Cancelled => None,
-                Unset => panic!("should never happen"),
-            }
-        }
+        self.inner_value
+            .get_or_init(|| self.inner_task.join().map(self.mapper.take().unwrap()))
+            .as_ref()
     }
 }
 

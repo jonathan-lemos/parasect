@@ -1,14 +1,7 @@
-use crate::task::cancellable_message::ValueState::*;
 use crate::task::cancellable_task::CancellableTask;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::cell::UnsafeCell;
-use std::sync::{Arc, RwLock};
-
-enum ValueState<T: Send> {
-    Unset,
-    Cancelled,
-    Set(T),
-}
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// Asynchronously sends a single T that may be cancelled.
 ///
@@ -18,15 +11,7 @@ enum ValueState<T: Send> {
 pub struct CancellableMessage<T: Send + Sync> {
     sender: Sender<Option<T>>,
     receiver: Receiver<Option<T>>,
-    // We need unsafe anyway to return a shared reference to the held data.
-    // Trying to do so with e.g. RefCell's .borrow() runs into the problem that the reference is
-    // tied to the lifetime of the RwLockReadGuard, so we can't return the reference.
-    // Doing so should be safe because we only mutate the cell once, and that mutation happens
-    // before any shared references are returned, so the data should be stable once a shared
-    // reference is returned.
-    //
-    // Because we need unsafe to use this anyway, there's no reason not to use UnsafeCell.
-    inner_value: Arc<RwLock<UnsafeCell<ValueState<T>>>>,
+    inner_value: Arc<OnceLock<Option<T>>>,
 }
 
 impl<T: Send + Sync> CancellableMessage<T> {
@@ -35,7 +20,7 @@ impl<T: Send + Sync> CancellableMessage<T> {
         Self {
             sender,
             receiver,
-            inner_value: Arc::new(RwLock::new(UnsafeCell::new(Unset))),
+            inner_value: Arc::new(OnceLock::new()),
         }
     }
 
@@ -63,46 +48,9 @@ impl<T: Send + Sync> CancellableMessage<T> {
     ///
     /// Repeated calls to this function will return the same value as the first call.
     pub fn recv(&self) -> Option<&T> {
-        {
-            let value_read = self.inner_value.read().unwrap();
-
-            // unsafe is required to get a shared reference to the ValueState behind the RwLock that
-            // is *not tied to the lifetime of the guard*
-            let immut_ref = unsafe { value_read.get().as_ref().unwrap() };
-
-            match immut_ref {
-                Set(v) => return Some(v),
-                Cancelled => return None,
-                Unset => {}
-            }
-        }
-        {
-            let mut value_write = self.inner_value.write().unwrap();
-
-            let mut_ref = value_write.get_mut();
-
-            // have to check again in case two threads both try to write
-            match mut_ref {
-                // once again, unsafe is required to get a reference that is not tied to the
-                // lifetime of the guard
-                Set(v) => return Some(unsafe { (v as *const T).as_ref().unwrap() }),
-                Cancelled => return None,
-                Unset => {}
-            }
-
-            *mut_ref = match self.receiver.recv().unwrap() {
-                Some(v) => Set(v),
-                None => Cancelled,
-            };
-
-            match mut_ref {
-                Set(v) => return Some(unsafe { (v as *const T).as_ref().unwrap() }),
-                Cancelled => return None,
-                Unset => {}
-            }
-
-            panic!("should never happen")
-        }
+        self.inner_value
+            .get_or_init(|| self.receiver.recv().unwrap())
+            .as_ref()
     }
 }
 
@@ -232,10 +180,6 @@ mod tests {
                 result.join().unwrap()
             })
         };
-
-        if let None = answer {
-            panic!("answer should not be None");
-        }
 
         assert_result_eq!(answer, 69);
     }
