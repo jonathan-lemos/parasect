@@ -10,7 +10,6 @@ pub enum BackgroundLoopBehavior {
 }
 
 /// A background thread that continually reads messages from a Receiver and executes the given function on them.
-// TODO: refactor this to include associated data, possibly get rid of the scoped version too
 pub struct BackgroundLoop {
     thread: JoinHandle<()>,
     cancel_sender: Sender<()>,

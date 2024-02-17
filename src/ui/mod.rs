@@ -1,7 +1,8 @@
 pub mod line;
-pub mod no_tty_ui;
-pub mod progress_bar;
-pub mod recent_log_display;
+mod no_tty_ui;
+mod progress_bar;
+mod recent_log_display;
 pub mod segment;
-pub mod tty_ui;
-pub mod ui_component;
+mod tty_ui;
+pub mod ui;
+mod ui_component;

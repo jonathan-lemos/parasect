@@ -1,28 +1,35 @@
 use crate::task::cancellable_task::CancellableTask;
-use std::cell::{Cell, OnceCell};
+use crate::task::map_cancellable_task::ValueState::*;
+use std::cell::{Cell, UnsafeCell};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
+
+enum ValueState<T: Send> {
+    Unset,
+    Cancelled,
+    Set(T),
+}
 
 /// A CancellableTask that maps another CancellableTask using a function.
 pub struct MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(Arc<TOld>) -> TNew,
+    Mapper: FnOnce(&TOld) -> TNew,
     InnerTask: CancellableTask<TOld>,
 {
     told_phantom: PhantomData<TOld>,
     mapper: Cell<Option<Mapper>>,
     inner_task: InnerTask,
-    value_cell: RwLock<OnceCell<Option<Arc<TNew>>>>,
+    value_cell: RwLock<UnsafeCell<ValueState<TNew>>>,
 }
 
 impl<TOld, TNew, Mapper, InnerTask> MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(Arc<TOld>) -> TNew,
+    Mapper: FnOnce(&TOld) -> TNew,
     InnerTask: CancellableTask<TOld>,
 {
     /// Use the .map() method on a CancellableTask instead.
@@ -31,7 +38,7 @@ where
             told_phantom: PhantomData,
             mapper: Cell::new(Some(mapper)),
             inner_task: inner,
-            value_cell: RwLock::new(OnceCell::new()),
+            value_cell: RwLock::new(UnsafeCell::new(Unset)),
         }
     }
 }
@@ -41,28 +48,43 @@ impl<TOld, TNew, Mapper, InnerTask> CancellableTask<TNew>
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(Arc<TOld>) -> TNew,
+    Mapper: FnOnce(&TOld) -> TNew,
     InnerTask: CancellableTask<TOld>,
 {
     fn request_cancellation(&self) -> () {
         self.inner_task.request_cancellation()
     }
 
-    fn join(&self) -> Option<Arc<TNew>> {
+    fn join(&self) -> Option<&TNew> {
         {
             let read_lock = self.value_cell.read().unwrap();
-            if let Some(v) = read_lock.get() {
-                return v.clone();
+
+            // unsafe needed to get a reference not tied to the lifetime of the guard
+            let immut_ref = unsafe { read_lock.get().as_ref().unwrap() };
+
+            match immut_ref {
+                Set(v) => return Some(v),
+                Cancelled => return None,
+                Unset => {}
             }
         }
         {
-            let write_lock = self.value_cell.write().unwrap();
+            let mut write_lock = self.value_cell.write().unwrap();
 
             if let Some(mapper) = self.mapper.take() {
-                let _ = write_lock.set(self.inner_task.join().map(mapper).map(Arc::new));
+                let mut_ref = write_lock.get_mut();
+                *mut_ref = match self.inner_task.join() {
+                    Some(v) => Set(mapper(v)),
+                    None => Cancelled,
+                };
             }
 
-            write_lock.get().unwrap().clone()
+            // unsafe needed to get a reference not tied to the lifetime of the guard
+            match unsafe { write_lock.get().as_ref().unwrap() } {
+                Set(v) => Some(v),
+                Cancelled => None,
+                Unset => panic!("should never happen"),
+            }
         }
     }
 }
@@ -71,7 +93,7 @@ impl<TOld, TNew, Mapper, InnerTask> Deref for MapValueCancellableTask<TOld, TNew
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(Arc<TOld>) -> TNew,
+    Mapper: FnOnce(&TOld) -> TNew,
     InnerTask: CancellableTask<TOld>,
 {
     type Target = InnerTask;
@@ -87,7 +109,7 @@ unsafe impl<TOld, TNew, Mapper, InnerTask> Send
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(Arc<TOld>) -> TNew,
+    Mapper: FnOnce(&TOld) -> TNew,
     InnerTask: CancellableTask<TOld>,
 {
 }
@@ -97,15 +119,16 @@ unsafe impl<TOld, TNew, Mapper, InnerTask> Sync
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(Arc<TOld>) -> TNew,
+    Mapper: FnOnce(&TOld) -> TNew,
     InnerTask: CancellableTask<TOld>,
 {
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::cancellable_message::CancellableMessage;
     use crate::task::cancellable_task::CancellableTask;
+    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::test_util::test_util::ResultLike;
     use std::thread;
 

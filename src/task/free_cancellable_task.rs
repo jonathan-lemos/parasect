@@ -6,30 +6,35 @@ use std::sync::Arc;
 ///
 /// cancel() will return None instead of the given value.
 pub struct FreeCancellableTask<T: Send + Sync> {
-    value: Arc<T>,
+    value: T,
     cancelled: AtomicBool,
+    value_was_returned: AtomicBool,
 }
 
 impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
     fn request_cancellation(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancelled.store(true, Ordering::Relaxed);
     }
 
-    fn join(&self) -> Option<Arc<T>> {
-        if self.cancelled.load(Ordering::Acquire) {
+    fn join(&self) -> Option<&T> {
+        if self.cancelled.load(Ordering::Relaxed)
+            && !self.value_was_returned.load(Ordering::Relaxed)
+        {
             None
         } else {
-            Some(self.value.clone())
+            self.value_was_returned.store(true, Ordering::Relaxed);
+            Some(&self.value)
         }
     }
 }
 
 impl<T: Send + Sync> FreeCancellableTask<T> {
     /// Creates a CancellableTask out of a T.
-    pub fn new<ArcLike: Into<Arc<T>>>(value: ArcLike) -> Self {
+    pub fn new(value: T) -> Self {
         Self {
-            value: value.into(),
+            value,
             cancelled: AtomicBool::new(false),
+            value_was_returned: AtomicBool::new(false),
         }
     }
 }

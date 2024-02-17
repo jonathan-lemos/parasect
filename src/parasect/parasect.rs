@@ -203,7 +203,7 @@ where
                     self_ref.queue.invalidate(&self_ref.settings.range.clone());
                     if let Some(sender) = &self_ref.settings.event_sender {
                         sender
-                            .send(ParasectCancelled(reason.as_ref().clone()))
+                            .send(ParasectCancelled((*reason).clone()))
                             .expect("event_sender should not be closed");
                     }
                 });

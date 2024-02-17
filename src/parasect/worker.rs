@@ -67,11 +67,11 @@ where
         midpoint: IBig,
         left: NumericRange,
         right: NumericRange,
-        result: Option<Arc<ParasectPayloadResult>>,
+        result: Option<&ParasectPayloadResult>,
     ) -> WorkerMessage {
         let msg_type = match result {
             None => Cancelled,
-            Some(a) => Completed(a.as_ref().clone()),
+            Some(a) => Completed(a.clone()),
         };
 
         WorkerMessage {

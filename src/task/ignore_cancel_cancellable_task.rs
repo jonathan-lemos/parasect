@@ -22,7 +22,7 @@ where
 {
     fn request_cancellation(&self) -> () {}
 
-    fn join(&self) -> Option<Arc<T>> {
+    fn join(&self) -> Option<&T> {
         self.inner.join()
     }
 }
@@ -55,9 +55,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::cancellable_task::CancellableTask;
     use crate::task::free_cancellable_task::FreeCancellableTask;
+    use crate::task::test_util::test_util::assert_result_eq;
     use crate::task::test_util::test_util::ResultLike;
 
     #[test]

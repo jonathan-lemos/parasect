@@ -3,24 +3,24 @@ pub mod test_util {
     use std::sync::Arc;
 
     pub trait ResultLike<T>: Clone {
-        fn to_result(&self) -> Option<Arc<T>>;
+        fn to_result(&self) -> Option<&T>;
     }
 
-    impl<T: Clone> ResultLike<T> for Option<Arc<T>> {
-        fn to_result(&self) -> Option<Arc<T>> {
+    impl<T: Clone> ResultLike<T> for Option<&T> {
+        fn to_result(&self) -> Option<&T> {
             self.clone()
         }
     }
 
     impl<T: Clone> ResultLike<T> for Option<T> {
-        fn to_result(&self) -> Option<Arc<T>> {
-            self.as_ref().map(|x| Arc::new(x.clone()))
+        fn to_result(&self) -> Option<&T> {
+            self.as_ref()
         }
     }
 
     impl<T: Clone> ResultLike<T> for T {
-        fn to_result(&self) -> Option<Arc<T>> {
-            Some(Arc::new(self.clone()))
+        fn to_result(&self) -> Option<&T> {
+            Some(&self)
         }
     }
 

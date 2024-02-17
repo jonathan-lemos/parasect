@@ -32,7 +32,7 @@ pub struct CancellableSubprocess {
 
 #[allow(unused)]
 impl CancellableSubprocess {
-    fn new(args: &[&str]) -> Result<CancellableSubprocess, SubprocessError> {
+    pub fn new(args: &[&str]) -> Result<CancellableSubprocess, SubprocessError> {
         let child = SharedChild::spawn(
             &mut Command::new(args[0])
                 .args(&args[1..])
@@ -85,7 +85,7 @@ impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableS
         let _ = self.child.kill();
     }
 
-    fn join(&self) -> Option<Arc<Result<SubprocessOutput, SubprocessError>>> {
+    fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
         self.msg.recv()
     }
 }

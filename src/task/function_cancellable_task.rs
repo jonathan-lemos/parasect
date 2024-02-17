@@ -51,7 +51,7 @@ where
         }
     }
 
-    fn join(&self) -> Option<Arc<T>> {
+    fn join(&self) -> Option<&T> {
         {
             let read = self.function.read().unwrap();
 

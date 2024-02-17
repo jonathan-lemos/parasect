@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::task::ignore_cancel_cancellable_task::IgnoreCancelCancellableTask;
 use crate::task::map_cancellable_task::MapValueCancellableTask;
+use std::sync::Arc;
 
 /// An asynchronous task that can be cancelled.
 ///
@@ -16,18 +16,25 @@ pub trait CancellableTask<T: Send + Sync>: Send + Sync {
     ///
     /// Blocks until the CancellableTask produces a value or is cancelled.
     /// None is returned if it's cancelled.
-    fn join(&self) -> Option<Arc<T>>;
+    fn join(&self) -> Option<&T>;
 
     /// Maps the result of the CancellableTask.
-    fn map<R: Send + Sync, Mapper>(self, mapper: Mapper) -> MapValueCancellableTask<T, R, Mapper, Self>
-        where Self: Sized,
-              Mapper: FnOnce(Arc<T>) -> R {
+    fn map<R: Send + Sync, Mapper>(
+        self,
+        mapper: Mapper,
+    ) -> MapValueCancellableTask<T, R, Mapper, Self>
+    where
+        Self: Sized,
+        Mapper: FnOnce(&T) -> R,
+    {
         MapValueCancellableTask::new(self, mapper)
     }
 
     /// Ignores any .request_cancellation() calls on the CancellableTask.
     fn ignore_cancellations(self) -> IgnoreCancelCancellableTask<T, Self>
-        where Self: Sized {
+    where
+        Self: Sized,
+    {
         IgnoreCancelCancellableTask::new(self)
     }
 }
