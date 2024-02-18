@@ -11,6 +11,7 @@ use crate::ui::line::Line;
 pub fn run_parasect(range: NumericRange, args: Vec<String>, ss: String) -> Result<(), Line> {
     let cgen = CommandGen::new(args, ss)?;
 
+    /*
     let settings = ParasectSettings::new(range, move |num| {
         let cmd = cgen.command_for_number(&num);
 
@@ -23,6 +24,7 @@ pub fn run_parasect(range: NumericRange, args: Vec<String>, ss: String) -> Resul
             },
         )
     });
+    */
 
     todo!();
 }

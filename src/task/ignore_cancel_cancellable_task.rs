@@ -61,8 +61,9 @@ where
 mod tests {
     use crate::task::cancellable_task::CancellableTask;
     use crate::task::free_cancellable_task::FreeCancellableTask;
-    use crate::task::test_util::test_util::assert_result_eq;
-    use crate::task::test_util::test_util::ResultLike;
+    use crate::task::test_util::test_util::{assert_cancellabletask_invariants, assert_result_eq};
+    use crate::task::test_util::test_util::{assert_cancellabletask_thread_safe, ResultLike};
+    use proptest::prelude::*;
 
     #[test]
     fn test_join() {
@@ -71,16 +72,21 @@ mod tests {
     }
 
     #[test]
-    fn test_join_idempotent() {
-        let task = FreeCancellableTask::new(69).ignoring_cancellations();
-        assert_result_eq!(task.join(), 69);
-        assert_result_eq!(task.join(), 69);
-    }
-
-    #[test]
     fn test_cancel() {
         let task = FreeCancellableTask::new(69).ignoring_cancellations();
         task.request_cancellation();
         assert_result_eq!(task.join(), 69);
+    }
+
+    #[test]
+    fn test_ct_invariants() {
+        assert_cancellabletask_invariants(|| FreeCancellableTask::new(69).ignoring_cancellations());
+    }
+
+    proptest! {
+        #[test]
+        fn test_thread_safe(i in 1..10000) {
+            assert_cancellabletask_thread_safe(|| FreeCancellableTask::new(i).ignoring_cancellations());
+        }
     }
 }

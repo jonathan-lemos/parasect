@@ -176,22 +176,6 @@ mod tests {
     }
 
     #[test]
-    fn ensure_exclusive_arc() {
-        let answer = {
-            let cm = CancellableMessage::<i64>::new();
-
-            thread::scope(|scope| {
-                let result = scope.spawn(|| cm.recv().map(|x| *x));
-                scope.spawn(|| cm.send(69));
-
-                result.join().unwrap()
-            })
-        };
-
-        assert_result_eq!(answer, 69);
-    }
-
-    #[test]
     fn test_multiple_recv() {
         let (answer1, answer2, answer3) = {
             let cm = CancellableMessage::<i64>::new();
@@ -240,6 +224,15 @@ mod tests {
             assert_eq!(answer2, answer3);
             assert_eq!(answer3, answer4);
             assert_result_eq!(answer1, 69);
+        })
+    }
+
+    #[test]
+    fn test_ct_invariants() {
+        assert_cancellabletask_invariants(|| {
+            let cm = CancellableMessage::<i64>::new();
+            cm.send(69);
+            cm
         })
     }
 }

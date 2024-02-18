@@ -62,6 +62,9 @@ where
 mod tests {
     use super::*;
     use crate::task::free_cancellable_task::FreeCancellableTask;
+    use crate::task::test_util::test_util::{
+        assert_cancellabletask_invariants, assert_cancellabletask_thread_safe,
+    };
     use proptest::prelude::*;
     use std::thread;
 
@@ -109,30 +112,31 @@ mod tests {
         assert_eq!(x, Some(&Err(69)))
     }
 
+    #[test]
+    fn test_ct_invariants_ok() {
+        assert_cancellabletask_invariants(|| {
+            ResultCancellableTask::new(wrap_result(FreeCancellableTask::new(69)))
+        })
+    }
+
+    #[test]
+    fn test_ct_invariants_err() {
+        assert_cancellabletask_invariants(|| ResultCancellableTask::new(wrap_err(69)))
+    }
+
     proptest! {
         #[test]
-        fn fuzz_join_cancel_no_panic(i in 1..10000) {
-            let r = ResultCancellableTask::new(wrap_result(FreeCancellableTask::new(i)));
-
-            thread::scope(|scope| {
-                scope.spawn(|| r.join());
-                scope.spawn(|| r.request_cancellation());
-            });
+        fn test_thread_safe_ok(i in 1..10000) {
+            assert_cancellabletask_thread_safe(|| ResultCancellableTask::new(
+                wrap_result(FreeCancellableTask::new(i))
+            ));
         }
 
         #[test]
-        fn fuzz_join_idempotent(i in 1..10000) {
-            let r = ResultCancellableTask::new(wrap_result(FreeCancellableTask::new(i)));
-
-            let (v1, v2) = thread::scope(|scope| {
-                let t1 = scope.spawn(|| r.join());
-                let t2 = scope.spawn(|| r.join());
-
-                (t1.join().unwrap(), t2.join().unwrap())
-            });
-
-            assert_eq!(v1, Some(&Ok(i)));
-            assert_eq!(v2, Some(&Ok(i)));
+        fn test_thread_safe_err(i in 1..10000) {
+            assert_cancellabletask_thread_safe(|| ResultCancellableTask::new(
+                wrap_err(i)
+            ));
         }
     }
 }

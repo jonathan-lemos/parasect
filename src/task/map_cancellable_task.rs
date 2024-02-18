@@ -1,7 +1,6 @@
 use crate::task::cancellable_task::CancellableTask;
 use crate::task::map_cancellable_task::ValueState::*;
 use crate::threading::single_use_cell::SingleUseCell;
-use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::OnceLock;
@@ -17,12 +16,12 @@ pub struct MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(&TOld) -> TNew,
+    Mapper: FnOnce(TOld) -> TNew + Send,
     InnerTask: CancellableTask<TOld>,
 {
     told_phantom: PhantomData<TOld>,
     mapper: SingleUseCell<Mapper>,
-    inner_task: InnerTask,
+    inner_task: SingleUseCell<InnerTask>,
     inner_value: OnceLock<Option<TNew>>,
 }
 
@@ -30,15 +29,15 @@ impl<TOld, TNew, Mapper, InnerTask> MapValueCancellableTask<TOld, TNew, Mapper, 
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(&TOld) -> TNew,
+    Mapper: FnOnce(TOld) -> TNew + Send,
     InnerTask: CancellableTask<TOld>,
 {
     /// Use the .map() method on a CancellableTask instead.
     pub fn new(inner: InnerTask, mapper: Mapper) -> Self {
         Self {
             told_phantom: PhantomData,
-            mapper: Cell::new(Some(mapper)),
-            inner_task: inner,
+            mapper: SingleUseCell::new(mapper),
+            inner_task: SingleUseCell::new(inner),
             inner_value: OnceLock::new(),
         }
     }
@@ -49,16 +48,16 @@ impl<TOld, TNew, Mapper, InnerTask> CancellableTask<TNew>
 where
     TOld: Send + Sync,
     TNew: Send + Sync,
-    Mapper: FnOnce(&TOld) -> TNew,
+    Mapper: FnOnce(TOld) -> TNew + Send,
     InnerTask: CancellableTask<TOld>,
 {
-    fn request_cancellation(&self) -> () {
-        self.inner_task.request_cancellation()
-    }
-
     fn join(&self) -> Option<&TNew> {
         self.inner_value
-            .get_or_init(|| self.inner_task.join().map(self.mapper.take().unwrap()))
+            .get_or_init(|| {
+                self.inner_task
+                    .take()
+                    .and_then(|t| t.join_into().map(self.mapper.take().unwrap()))
+            })
             .as_ref()
     }
 
@@ -66,91 +65,46 @@ where
         self.join();
         self.inner_value.take().unwrap()
     }
-}
 
-impl<TOld, TNew, Mapper, InnerTask> Deref for MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
-where
-    TOld: Send + Sync,
-    TNew: Send + Sync,
-    Mapper: FnOnce(&TOld) -> TNew,
-    InnerTask: CancellableTask<TOld>,
-{
-    type Target = InnerTask;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner_task
+    fn request_cancellation(&self) -> () {
+        let _ = self.inner_value.set(None);
+        self.mapper.take();
+        self.inner_task.take().inspect(|t| t.request_cancellation());
     }
-}
-
-// Thread-safe because any mutations to the OnceCell require a write lock.
-unsafe impl<TOld, TNew, Mapper, InnerTask> Send
-    for MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
-where
-    TOld: Send + Sync,
-    TNew: Send + Sync,
-    Mapper: FnOnce(&TOld) -> TNew,
-    InnerTask: CancellableTask<TOld>,
-{
-}
-
-unsafe impl<TOld, TNew, Mapper, InnerTask> Sync
-    for MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
-where
-    TOld: Send + Sync,
-    TNew: Send + Sync,
-    Mapper: FnOnce(&TOld) -> TNew,
-    InnerTask: CancellableTask<TOld>,
-{
 }
 
 #[cfg(test)]
 mod tests {
     use crate::task::cancellable_message::CancellableMessage;
     use crate::task::cancellable_task::CancellableTask;
-    use crate::task::test_util::test_util::assert_result_eq;
-    use crate::task::test_util::test_util::ResultLike;
+    use crate::task::free_cancellable_task::FreeCancellableTask;
+    use crate::task::function_cancellable_task::FunctionCancellableTask;
+    use crate::task::test_util::test_util::{assert_cancellabletask_invariants, assert_result_eq};
+    use crate::task::test_util::test_util::{assert_cancellabletask_thread_safe, ResultLike};
+    use proptest::proptest;
     use std::thread;
 
     #[test]
     fn test_map_before() {
-        let task = CancellableMessage::<i64>::new().map(|x| (*x) + 1);
+        let task = FreeCancellableTask::new(69).map(|x| x + 1);
 
-        task.send(69);
         let val = task.join();
 
-        assert_result_eq!(val, 70);
-    }
-
-    #[test]
-    fn test_join_idempotent() {
-        let task = CancellableMessage::<i64>::new().map(|x| (*x) + 1);
-
-        task.send(69);
-        let val = task.join();
-        let val2 = task.join();
-
-        assert_eq!(val, val2);
         assert_result_eq!(val, 70);
     }
 
     #[test]
     fn test_map_after() {
-        let task = CancellableMessage::<i64>::new().map(|x| (*x) + 1);
+        let task = FunctionCancellableTask::new(|| 69).map(|x| x + 1);
 
-        let val = thread::scope(|scope| {
-            let t = scope.spawn(|| task.join());
-
-            scope.spawn(|| task.send(69));
-
-            t.join().unwrap()
-        });
+        let val = task.join();
 
         assert_result_eq!(val, 70);
     }
 
     #[test]
     fn test_cancel_before() {
-        let task = CancellableMessage::<i64>::new().map(|x| (*x) + 1);
+        let task = FunctionCancellableTask::new(|| 69).map(|x| x + 1);
 
         task.request_cancellation();
         let val = task.join();
@@ -160,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_cancel_after() {
-        let task = CancellableMessage::<i64>::new().map(|x| (*x) + 1);
+        let task = FunctionCancellableTask::new(|| 69).map(|x| x + 1);
 
         let val = thread::scope(|scope| {
             let t = scope.spawn(|| task.join());
@@ -171,5 +125,17 @@ mod tests {
         });
 
         assert_eq!(val, None);
+    }
+
+    #[test]
+    fn test_ct_invariants() {
+        assert_cancellabletask_invariants(|| FreeCancellableTask::new(68).map(|x| x + 1));
+    }
+
+    proptest! {
+        #[test]
+        fn test_thread_safe(i in 1..10000) {
+            assert_cancellabletask_thread_safe(|| FreeCancellableTask::new(i).map(|x| x + 1));
+        }
     }
 }

@@ -19,6 +19,17 @@ pub trait CancellableTask<T: Send + Sync>: Send + Sync {
     /// None is returned if it's cancelled.
     fn join(&self) -> Option<&T>;
 
+    /// Returns a clone of the inner value when it's generated.
+    ///
+    /// Blocks until the CancellableTask produces a value or is cancelled.
+    /// None is returned if it's cancelled.
+    fn join_clone(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.join().map(|x| x.clone())
+    }
+
     /// Returns the inner value.
     ///
     /// Blocks until the CancellableTask produces a value or is cancelled.
@@ -32,7 +43,7 @@ pub trait CancellableTask<T: Send + Sync>: Send + Sync {
     ) -> MapValueCancellableTask<T, R, Mapper, Self>
     where
         Self: Sized,
-        Mapper: FnOnce(&T) -> R,
+        Mapper: FnOnce(T) -> R + Send,
     {
         MapValueCancellableTask::new(self, mapper)
     }

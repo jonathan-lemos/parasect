@@ -46,8 +46,9 @@ impl<T: Send + Sync> FreeCancellableTask<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task::test_util::test_util::assert_result_eq;
-    use crate::task::test_util::test_util::ResultLike;
+    use crate::task::test_util::test_util::{assert_cancellabletask_invariants, assert_result_eq};
+    use crate::task::test_util::test_util::{assert_cancellabletask_thread_safe, ResultLike};
+    use proptest::prelude::*;
 
     #[test]
     fn returns_value() {
@@ -56,16 +57,21 @@ mod tests {
     }
 
     #[test]
-    fn join_idempotent() {
-        let task = FreeCancellableTask::<i64>::new(69);
-        assert_result_eq!(task.join(), 69);
-        assert_result_eq!(task.join(), 69);
-    }
-
-    #[test]
     fn returns_none_on_cancel() {
         let task = FreeCancellableTask::<i64>::new(69);
         task.request_cancellation();
         assert_eq!(task.join(), None);
+    }
+
+    #[test]
+    fn test_assert_ct_invariants() {
+        assert_cancellabletask_invariants(|| FreeCancellableTask::<i64>::new(69));
+    }
+
+    proptest! {
+        #[test]
+        fn test_threadsafe(i in 1..10000) {
+            assert_cancellabletask_thread_safe(|| FreeCancellableTask::<i32>::new(i));
+        }
     }
 }
