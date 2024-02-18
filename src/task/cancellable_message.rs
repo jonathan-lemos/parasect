@@ -1,17 +1,15 @@
 use crate::task::cancellable_task::CancellableTask;
 use crossbeam_channel::{bounded, Receiver, Sender};
-use std::cell::UnsafeCell;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 /// Asynchronously sends a single T that may be cancelled.
 ///
 /// Any send() or cancel() after the first of either will be ignored.
 /// Messages can be sent and received in any thread.
-/// CancellableMessages can be cloned, in which case any receiver will get the same value.
 pub struct CancellableMessage<T: Send + Sync> {
     sender: Sender<Option<T>>,
     receiver: Receiver<Option<T>>,
-    inner_value: Arc<OnceLock<Option<T>>>,
+    inner_value: OnceLock<Option<T>>,
 }
 
 impl<T: Send + Sync> CancellableMessage<T> {
@@ -20,7 +18,7 @@ impl<T: Send + Sync> CancellableMessage<T> {
         Self {
             sender,
             receiver,
-            inner_value: Arc::new(OnceLock::new()),
+            inner_value: OnceLock::new(),
         }
     }
 
@@ -52,25 +50,26 @@ impl<T: Send + Sync> CancellableMessage<T> {
             .get_or_init(|| self.receiver.recv().unwrap())
             .as_ref()
     }
-}
 
-impl<T: Send + Sync> Clone for CancellableMessage<T> {
-    fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            receiver: self.receiver.clone(),
-            inner_value: self.inner_value.clone(),
-        }
+    /// Receives a value (Some) or a cancellation (None).
+    /// Blocks until send() or cancel() is called.
+    pub fn recv_into(mut self) -> Option<T> {
+        self.recv();
+        self.inner_value.take().unwrap()
     }
 }
 
 impl<T: Send + Sync> CancellableTask<T> for CancellableMessage<T> {
-    fn request_cancellation(&self) -> () {
-        self.cancel();
-    }
-
     fn join(&self) -> Option<&T> {
         self.recv()
+    }
+
+    fn join_into(self) -> Option<T> {
+        self.recv_into()
+    }
+
+    fn request_cancellation(&self) -> () {
+        self.cancel();
     }
 }
 
@@ -87,6 +86,14 @@ mod tests {
     use crate::task::test_util::test_util::*;
     use crate::test_util::test_util::test_util::detect_flake;
     use std::thread;
+
+    #[test]
+    fn test_recv_into() {
+        let cm = CancellableMessage::<i64>::new();
+
+        cm.send(69);
+        assert_result_eq!(cm.recv_into(), 69);
+    }
 
     #[test]
     fn test_send_recv() {
@@ -234,27 +241,5 @@ mod tests {
             assert_eq!(answer3, answer4);
             assert_result_eq!(answer1, 69);
         })
-    }
-
-    #[test]
-    fn test_clone() {
-        let cm = CancellableMessage::new();
-        let cm2 = cm.clone();
-
-        cm2.send(69);
-
-        assert_result_eq!(cm2.recv(), 69);
-        assert_eq!(cm.recv(), cm2.recv());
-    }
-
-    #[test]
-    fn test_clone_2() {
-        let cm = CancellableMessage::new();
-        let cm2 = cm.clone();
-
-        cm.send(69);
-
-        assert_eq!(cm.recv(), cm2.recv());
-        assert_result_eq!(cm.recv(), 69);
     }
 }

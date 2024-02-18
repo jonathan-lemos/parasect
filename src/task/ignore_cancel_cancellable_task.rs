@@ -20,11 +20,15 @@ where
     T: Send + Sync,
     InnerTask: CancellableTask<T>,
 {
-    fn request_cancellation(&self) -> () {}
-
     fn join(&self) -> Option<&T> {
         self.inner.join()
     }
+
+    fn join_into(self) -> Option<T> {
+        self.inner.join_into()
+    }
+
+    fn request_cancellation(&self) -> () {}
 }
 
 impl<T, InnerTask> IgnoreCancelCancellableTask<T, InnerTask>

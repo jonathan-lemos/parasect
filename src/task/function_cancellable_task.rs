@@ -12,7 +12,7 @@ where
     F: FnOnce() -> T,
 {
     cancellable_message: CancellableMessage<T>,
-    function: Arc<RwLock<UnsafeCell<Option<F>>>>,
+    function: RwLock<UnsafeCell<Option<F>>>,
 }
 
 impl<T, F> FunctionCancellableTask<T, F>
@@ -23,7 +23,7 @@ where
     pub fn new(func: F) -> Self {
         Self {
             cancellable_message: CancellableMessage::new(),
-            function: Arc::new(RwLock::new(UnsafeCell::new(Some(func)))),
+            function: RwLock::new(UnsafeCell::new(Some(func))),
         }
     }
 }
@@ -33,24 +33,6 @@ where
     T: Send + Sync,
     F: FnOnce() -> T,
 {
-    fn request_cancellation(&self) -> () {
-        {
-            let read = self.function.read().unwrap();
-
-            // safe because no read blocks mutate the pointed-to data
-            let immut_ref = unsafe { read.get().as_ref().unwrap() };
-            if immut_ref.is_none() {
-                return;
-            }
-        }
-        {
-            let mut write = self.function.write().unwrap();
-
-            *write.get_mut() = None;
-            self.cancellable_message.cancel();
-        }
-    }
-
     fn join(&self) -> Option<&T> {
         {
             let read = self.function.read().unwrap();
@@ -72,17 +54,27 @@ where
             self.cancellable_message.join()
         }
     }
-}
 
-impl<T, F> Clone for FunctionCancellableTask<T, F>
-where
-    T: Send + Sync,
-    F: FnOnce() -> T,
-{
-    fn clone(&self) -> Self {
-        Self {
-            cancellable_message: self.cancellable_message.clone(),
-            function: self.function.clone(),
+    fn join_into(self) -> Option<T> {
+        self.join();
+        self.cancellable_message.recv_into()
+    }
+
+    fn request_cancellation(&self) -> () {
+        {
+            let read = self.function.read().unwrap();
+
+            // safe because no read blocks mutate the pointed-to data
+            let immut_ref = unsafe { read.get().as_ref().unwrap() };
+            if immut_ref.is_none() {
+                return;
+            }
+        }
+        {
+            let mut write = self.function.write().unwrap();
+
+            *write.get_mut() = None;
+            self.cancellable_message.cancel();
         }
     }
 }

@@ -60,6 +60,11 @@ where
             .get_or_init(|| self.inner_task.join().map(self.mapper.take().unwrap()))
             .as_ref()
     }
+
+    fn join_into(mut self) -> Option<TNew> {
+        self.join();
+        self.inner_value.take().unwrap()
+    }
 }
 
 impl<TOld, TNew, Mapper, InnerTask> Deref for MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>

@@ -5,6 +5,7 @@ use shared_child::SharedChild;
 use std::io::Read;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::{io, thread};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -27,7 +28,8 @@ pub enum SubprocessError {
 /// Cancellation sends a SIGKILL
 pub struct CancellableSubprocess {
     child: Arc<SharedChild>,
-    msg: CancellableMessage<Result<SubprocessOutput, SubprocessError>>,
+    msg: Arc<CancellableMessage<Result<SubprocessOutput, SubprocessError>>>,
+    thread: JoinHandle<()>,
 }
 
 #[allow(unused)]
@@ -41,14 +43,12 @@ impl CancellableSubprocess {
         )
         .map_err(ProcessSpawnError)?;
 
-        let ret = Self {
-            child: Arc::new(child),
-            msg: CancellableMessage::new(),
-        };
+        let child = Arc::new(child);
+        let msg = Arc::new(CancellableMessage::new());
 
-        {
-            let child_clone = ret.child.clone();
-            let msg_clone = ret.msg.clone();
+        let thread = {
+            let child_clone = child.clone();
+            let msg_clone = msg.clone();
             thread::spawn(move || {
                 let mut output = String::new();
 
@@ -72,21 +72,28 @@ impl CancellableSubprocess {
                 };
 
                 msg_clone.send(Ok(SubprocessOutput { output, status }));
-            });
-        }
+            })
+        };
+
+        let ret = Self { child, msg, thread };
 
         Ok(ret)
     }
 }
 
 impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableSubprocess {
+    fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
+        self.msg.recv()
+    }
+
+    fn join_into(self) -> Option<Result<SubprocessOutput, SubprocessError>> {
+        self.thread.join().unwrap();
+        Arc::into_inner(self.msg).unwrap().recv_into()
+    }
+
     fn request_cancellation(&self) -> () {
         self.msg.cancel();
         let _ = self.child.kill();
-    }
-
-    fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
-        self.msg.recv()
     }
 }
 

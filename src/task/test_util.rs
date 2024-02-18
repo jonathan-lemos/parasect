@@ -1,7 +1,5 @@
 #[cfg(test)]
 pub mod test_util {
-    use std::sync::Arc;
-
     pub trait ResultLike<T>: Clone {
         fn to_result(&self) -> Option<&T>;
     }

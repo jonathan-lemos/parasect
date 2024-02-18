@@ -12,10 +12,6 @@ pub struct FreeCancellableTask<T: Send + Sync> {
 }
 
 impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
-    fn request_cancellation(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
-    }
-
     fn join(&self) -> Option<&T> {
         if self.cancelled.load(Ordering::Relaxed)
             && !self.value_was_returned.load(Ordering::Relaxed)
@@ -25,6 +21,14 @@ impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
             self.value_was_returned.store(true, Ordering::Relaxed);
             Some(&self.value)
         }
+    }
+
+    fn join_into(self) -> Option<T> {
+        Some(self.value)
+    }
+
+    fn request_cancellation(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
     }
 }
 
