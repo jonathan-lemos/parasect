@@ -2,6 +2,7 @@ use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_subprocess::SubprocessError::*;
 use crate::task::cancellable_task::CancellableTask;
 use shared_child::SharedChild;
+use std::fmt::{Display, Formatter};
 use std::io::Read;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -11,16 +12,28 @@ use std::{io, thread};
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SubprocessOutput {
     status: ExitStatus,
-    output: String,
+    output: Option<String>,
 }
 
 #[derive(Debug)]
 #[allow(unused)]
 pub enum SubprocessError {
     ProcessSpawnError(io::Error),
-    StdoutReadError(io::Error),
-    ProcessKillError(io::Error),
     ProcessWaitError(io::Error),
+}
+
+impl Display for SubprocessError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProcessSpawnError(e) => {
+                f.write_str(&format!("Subprocess failed to spawn: {}", e.to_string()))
+            }
+            ProcessWaitError(e) => f.write_str(&format!(
+                "Failed to read the process's return code: {}",
+                e.to_string()
+            )),
+        }
+    }
 }
 
 /// A subprocess that can be cancelled mid-execution.
@@ -52,15 +65,15 @@ impl CancellableSubprocess {
             thread::spawn(move || {
                 let mut output = String::new();
 
-                if let Err(e) = child_clone
+                let output_option = if let Err(e) = child_clone
                     .take_stdout()
                     .unwrap()
                     .read_to_string(&mut output)
                 {
-                    msg_clone.send(Err(StdoutReadError(e)));
-                    let _ = child_clone.kill();
-                    return;
-                }
+                    None
+                } else {
+                    Some(output)
+                };
 
                 let status = match child_clone.wait() {
                     Err(e) => {
@@ -71,7 +84,10 @@ impl CancellableSubprocess {
                     Ok(v) => v,
                 };
 
-                msg_clone.send(Ok(SubprocessOutput { output, status }));
+                msg_clone.send(Ok(SubprocessOutput {
+                    output: output_option,
+                    status,
+                }));
             })
         };
 
@@ -113,7 +129,7 @@ mod tests {
             Err(e) => panic!("{:?}", e),
         };
 
-        assert_eq!(output.output, "foo\n");
+        assert_eq!(output.output, Some("foo\n".to_string()));
     }
 
     #[test]

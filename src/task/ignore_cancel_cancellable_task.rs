@@ -66,20 +66,20 @@ mod tests {
 
     #[test]
     fn test_join() {
-        let task = FreeCancellableTask::new(69).ignore_cancellations();
+        let task = FreeCancellableTask::new(69).ignoring_cancellations();
         assert_result_eq!(task.join(), 69);
     }
 
     #[test]
     fn test_join_idempotent() {
-        let task = FreeCancellableTask::new(69).ignore_cancellations();
+        let task = FreeCancellableTask::new(69).ignoring_cancellations();
         assert_result_eq!(task.join(), 69);
         assert_result_eq!(task.join(), 69);
     }
 
     #[test]
     fn test_cancel() {
-        let task = FreeCancellableTask::new(69).ignore_cancellations();
+        let task = FreeCancellableTask::new(69).ignoring_cancellations();
         task.request_cancellation();
         assert_result_eq!(task.join(), 69);
     }

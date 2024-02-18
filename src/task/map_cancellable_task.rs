@@ -1,9 +1,10 @@
 use crate::task::cancellable_task::CancellableTask;
 use crate::task::map_cancellable_task::ValueState::*;
-use std::cell::{Cell, UnsafeCell};
+use crate::threading::single_use_cell::SingleUseCell;
+use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
 
 enum ValueState<T: Send> {
     Unset,
@@ -20,7 +21,7 @@ where
     InnerTask: CancellableTask<TOld>,
 {
     told_phantom: PhantomData<TOld>,
-    mapper: Cell<Option<Mapper>>,
+    mapper: SingleUseCell<Mapper>,
     inner_task: InnerTask,
     inner_value: OnceLock<Option<TNew>>,
 }

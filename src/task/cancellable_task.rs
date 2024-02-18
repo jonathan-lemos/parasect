@@ -6,7 +6,7 @@ use crate::task::map_cancellable_task::MapValueCancellableTask;
 /// Outputs a single value if uncancelled, or None if cancelled.
 pub trait CancellableTask<T: Send + Sync>: Send + Sync {
     /// Ignores any .request_cancellation() calls on the CancellableTask.
-    fn ignore_cancellations(self) -> IgnoreCancelCancellableTask<T, Self>
+    fn ignoring_cancellations(self) -> IgnoreCancelCancellableTask<T, Self>
     where
         Self: Sized,
     {
