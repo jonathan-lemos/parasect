@@ -108,15 +108,37 @@ mod tests {
 
     #[test]
     fn test_parasect_result_to_lines_success() {
-        let args = CliArgs::parse_from(["--low=5", "--high=10", "foo", "--num=$X"]);
+        let args =
+            CliArgs::parse_from(["parasect", "--low=5", "--high=10", "--", "foo", "--num=$X"]);
 
         assert_eq!(
             parasect_result_to_lines(&args, &ib(7)),
-            vec![mkline!(
-                ("Successfully parasected", Color::Green),
-                " foo --num=",
-                ("$X", Color::Blue, Attributes::Bold)
-            )]
+            vec![
+                mkline!(
+                    ("Successfully parasected", Color::Green),
+                    " foo --num=",
+                    ("$X", Color::Blue, Attributes::Bold)
+                ),
+                mkline!("First bad index: ", (7, Color::Blue, Attributes::Bold))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parasect_result_to_lines_failure() {
+        let args =
+            CliArgs::parse_from(["parasect", "--low=5", "--high=10", "--", "foo", "--num=$X"]);
+
+        assert_eq!(
+            parasect_result_to_lines(&args, &ib(7)),
+            vec![
+                mkline!(
+                    ("Successfully parasected", Color::Green),
+                    " foo --num=",
+                    ("$X", Color::Blue, Attributes::Bold)
+                ),
+                mkline!("First bad index: ", (7, Color::Blue, Attributes::Bold))
+            ]
         );
     }
 }

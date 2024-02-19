@@ -21,7 +21,7 @@ pub struct CliArgs {
     ///
     /// The magic string "$X" will be replaced with the number. To change this string, use --substitution-string=NEW_STRING
     ///
-    /// This command should return 0 if good, != 0 if bad
+    /// This command should return 0 if good, != 0 if bad.
     #[arg()]
     pub command: Vec<String>,
 
@@ -61,6 +61,17 @@ impl CliArgs {
         CommandGen::new(self.command.clone(), self.substitution_string.clone())
     }
 
+    pub fn max_parallelism(&self) -> CliResult<usize> {
+        let ret = self.max_parallelism.unwrap_or(num_cpus::get());
+        if ret == 0 {
+            Err(vec![mkline!(
+                "The max parallelism cannot be 0. Specify a value >= 1 for --max-parallelism."
+            )])
+        } else {
+            Ok(ret)
+        }
+    }
+
     pub fn range(&self) -> CliResult<NumericRange> {
         if self.low >= self.high {
             return Err(vec![mkline!(
@@ -77,23 +88,13 @@ impl CliArgs {
             self.high.clone(),
         ))
     }
-
-    pub fn max_parallelism(&self) -> CliResult<usize> {
-        let ret = self.max_parallelism.unwrap_or(num_cpus::get());
-        if ret == 0 {
-            Err(vec![mkline!(
-                "The max parallelism cannot be 0. Specify a value >= 1 for --max-parallelism"
-            )])
-        } else {
-            Ok(ret)
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::cli::cli_args::CliArgs;
-    use crate::test_util::test_util::test_util::ib;
+    use crate::test_util::test_util::test_util::{ib, r};
+    use crate::ui::line::mkline;
     use clap::Parser;
 
     #[test]
@@ -150,5 +151,76 @@ mod tests {
     }
 
     #[test]
-    fn test_command_gen() {}
+    fn test_command_gen_ok() {
+        let args =
+            CliArgs::parse_from(["parasect", "--low=5", "--high=10", "--", "foo", "--bar=$X"]);
+
+        assert!(args.command_gen().is_ok());
+    }
+
+    #[test]
+    fn test_command_gen_err() {
+        let args = CliArgs::parse_from(["parasect", "--low=5", "--high=10"]);
+
+        assert!(args.command_gen().is_err());
+    }
+
+    #[test]
+    fn test_max_parallelism_ok() {
+        let args = CliArgs::parse_from([
+            "parasect",
+            "--low=5",
+            "--high=10",
+            "--max-parallelism=2",
+            "--",
+            "foo",
+            "--bar=$X",
+        ]);
+
+        assert_eq!(args.max_parallelism(), Ok(2));
+    }
+
+    #[test]
+    fn test_max_parallelism_not_specified() {
+        let args =
+            CliArgs::parse_from(["parasect", "--low=5", "--high=10", "--", "foo", "--bar=$X"]);
+
+        assert!(args.max_parallelism().is_ok());
+    }
+
+    #[test]
+    fn test_max_parallelism_zero_err() {
+        let args = CliArgs::parse_from([
+            "parasect",
+            "--low=5",
+            "--high=10",
+            "--max-parallelism=0",
+            "--",
+            "foo",
+            "--bar=$X",
+        ]);
+
+        assert_eq!(
+            args.max_parallelism(),
+            Err(vec![mkline!(
+                "The max parallelism cannot be 0. Specify a value >= 1 for --max-parallelism."
+            )])
+        );
+    }
+
+    #[test]
+    fn test_range() {
+        let args =
+            CliArgs::parse_from(["parasect", "--low=5", "--high=10", "--", "foo", "--bar=$X"]);
+
+        assert_eq!(args.range(), Ok(r(5, 10)));
+    }
+
+    #[test]
+    fn test_range_invalid_err() {
+        let args =
+            CliArgs::parse_from(["parasect", "--low=5", "--high=5", "--", "foo", "--bar=$X"]);
+
+        assert!(args.range().is_err());
+    }
 }

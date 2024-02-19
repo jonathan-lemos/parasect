@@ -374,7 +374,7 @@ mod tests {
                 parasect(
                     ParasectSettings::new(r(lo, hi), |x|
                         FunctionCancellableTask::new(move || {
-                        thread::sleep(Duration::from_millis(random::<u64>() % 51));
+                        thread::sleep(Duration::from_millis(random::<u64>() % 7));
                         if x < IBig::from(lt) { Continue(Good) } else { Continue(Bad) }
                     })).with_max_parallelism(3));
 

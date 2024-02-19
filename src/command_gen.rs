@@ -146,4 +146,12 @@ mod tests {
             vec![mkline!("The substitution string cannot be empty.")]
         )
     }
+
+    #[test]
+    fn test_cmdgen_fails_with_blank_command() {
+        assert_eq!(
+            CommandGen::new(Vec::new(), "$X".to_string(),).unwrap_err(),
+            vec![mkline!("The command cannot be empty.")]
+        )
+    }
 }
