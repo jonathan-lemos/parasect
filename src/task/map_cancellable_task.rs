@@ -1,15 +1,7 @@
 use crate::task::cancellable_task::CancellableTask;
-use crate::task::map_cancellable_task::ValueState::*;
 use crate::threading::single_use_cell::SingleUseCell;
 use std::marker::PhantomData;
-use std::ops::Deref;
 use std::sync::OnceLock;
-
-enum ValueState<T: Send> {
-    Unset,
-    Cancelled,
-    Set(T),
-}
 
 /// A CancellableTask that maps another CancellableTask using a function.
 pub struct MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
@@ -75,12 +67,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::task::cancellable_message::CancellableMessage;
     use crate::task::cancellable_task::CancellableTask;
     use crate::task::free_cancellable_task::FreeCancellableTask;
     use crate::task::function_cancellable_task::FunctionCancellableTask;
-    use crate::task::test_util::test_util::{assert_cancellabletask_invariants, assert_result_eq};
-    use crate::task::test_util::test_util::{assert_cancellabletask_thread_safe, ResultLike};
+    use crate::task::test_util::*;
     use proptest::proptest;
     use std::thread;
 

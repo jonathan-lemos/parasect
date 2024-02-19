@@ -1,5 +1,6 @@
 use crate::parasect::event::Event;
 use crate::range::numeric_range::NumericRange;
+use crate::ui::line::Line;
 use crate::ui::no_tty_ui::NoTtyUi;
 use crate::ui::tty_ui::TtyUi;
 use crate::ui::ui::Ui::*;
@@ -11,11 +12,28 @@ pub enum Ui {
 }
 
 impl Ui {
-    /*
-    pub fn start(initial_range: NumericRange, event_receiver: Receiver<Event>) -> Self {
-        TtyUi::start(initial_range.clone(), event_receiver.clone())
-            .map(Tty)
-            .unwrap_or_else(|| NoTty(NoTtyUi::start(initial_range, event_receiver)))
+    pub fn start(
+        initial_range: NumericRange,
+        title: Line,
+        event_receiver: Receiver<Event>,
+        no_tty: bool,
+    ) -> Self {
+        if no_tty {
+            NoTty(NoTtyUi::start(
+                initial_range,
+                title.plaintext(),
+                event_receiver,
+            ))
+        } else {
+            TtyUi::start(initial_range.clone(), title.clone(), event_receiver.clone())
+                .map(Tty)
+                .unwrap_or_else(|| {
+                    NoTty(NoTtyUi::start(
+                        initial_range,
+                        title.plaintext(),
+                        event_receiver,
+                    ))
+                })
+        }
     }
-    */
 }

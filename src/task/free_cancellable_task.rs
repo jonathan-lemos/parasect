@@ -1,6 +1,5 @@
 use crate::task::cancellable_task::CancellableTask;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 /// Wraps a value in the CancellableTask trait.
 ///
@@ -46,8 +45,7 @@ impl<T: Send + Sync> FreeCancellableTask<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task::test_util::test_util::{assert_cancellabletask_invariants, assert_result_eq};
-    use crate::task::test_util::test_util::{assert_cancellabletask_thread_safe, ResultLike};
+    use crate::task::test_util::*;
     use proptest::prelude::*;
 
     #[test]

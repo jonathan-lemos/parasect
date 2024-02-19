@@ -1,7 +1,6 @@
 use crate::task::cancellable_task::CancellableTask;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::Arc;
 
 /// Wraps a CancellableTask, but silently drops all cancellations.
 ///
@@ -61,8 +60,7 @@ where
 mod tests {
     use crate::task::cancellable_task::CancellableTask;
     use crate::task::free_cancellable_task::FreeCancellableTask;
-    use crate::task::test_util::test_util::{assert_cancellabletask_invariants, assert_result_eq};
-    use crate::task::test_util::test_util::{assert_cancellabletask_thread_safe, ResultLike};
+    use crate::task::test_util::*;
     use proptest::prelude::*;
 
     #[test]

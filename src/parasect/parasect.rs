@@ -262,6 +262,7 @@ fn process_result_map(
     }
 }
 
+/// Returns the first bad index in the given search space.
 pub fn parasect<TTask, FPayload>(
     settings: ParasectSettings<TTask, FPayload>,
 ) -> Result<IBig, ParasectError>

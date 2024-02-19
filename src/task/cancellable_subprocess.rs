@@ -11,8 +11,8 @@ use std::{io, thread};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct SubprocessOutput {
-    status: ExitStatus,
-    output: Option<String>,
+    pub status: ExitStatus,
+    pub output: Option<String>,
 }
 
 #[derive(Debug)]

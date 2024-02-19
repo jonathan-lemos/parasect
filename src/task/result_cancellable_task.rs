@@ -62,11 +62,8 @@ where
 mod tests {
     use super::*;
     use crate::task::free_cancellable_task::FreeCancellableTask;
-    use crate::task::test_util::test_util::{
-        assert_cancellabletask_invariants, assert_cancellabletask_thread_safe,
-    };
+    use crate::task::test_util::*;
     use proptest::prelude::*;
-    use std::thread;
 
     fn wrap_result<T>(t: T) -> Result<T, ()> {
         Ok(t)

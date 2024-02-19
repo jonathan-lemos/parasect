@@ -2,7 +2,7 @@ use crate::collections::collect_collection::CollectVec;
 use crate::parasect::event::Event;
 use crate::range::numeric_range::NumericRange;
 use crate::threading::fan::Fan;
-use crate::ui::line::Line;
+use crate::ui::line::{print_lines, Line};
 use crate::ui::progress_bar::ProgressBar;
 use crate::ui::recent_log_display::RecentLogDisplay;
 use crate::ui::ui_component::UiComponent;
@@ -23,7 +23,6 @@ use termion::is_tty;
 /// The TUI stops rendering when this struct is dropped.
 pub struct TtyUi {
     cancel: Arc<AtomicBool>,
-    line_cache: Arc<DashMap<usize, Line>>,
     _fan: Fan<Event>,
 }
 
@@ -83,15 +82,13 @@ impl TtyUi {
 
     /// Prints only the lines that are Some.
     fn print_deduped_lines(lines: &Vec<Option<Line>>) {
-        for (line_option, idx) in lines.iter().zip(1..) {
-            print!("{}", termion::cursor::Goto(idx, 1));
-            unwrap_or!(line_option, continue).print();
-        }
+        let empty = Line::empty();
+        print_lines(lines.into_iter().map(|x| x.as_ref().unwrap_or(&empty)));
     }
 
     pub fn start(
         initial_range: NumericRange,
-        title: &str,
+        title: Line,
         event_receiver: Receiver<Event>,
     ) -> Option<Self> {
         if Self::get_bounds().is_none() {
@@ -100,7 +97,6 @@ impl TtyUi {
 
         let fan = Fan::new(event_receiver);
         let cancel = Arc::new(AtomicBool::new(false));
-        let line_cache = Arc::new(DashMap::new());
 
         print!("{}", termion::cursor::Hide);
         Self::clear_screen();
@@ -108,8 +104,7 @@ impl TtyUi {
         let progress_bar = ProgressBar::new(fan.subscribe().clone(), initial_range);
         let recent_log_display = RecentLogDisplay::new(fan.subscribe().clone());
         let cancel_clone = cancel.clone();
-        let title_clone = title.to_string();
-        let line_cache_clone = line_cache.clone();
+        let line_cache = Arc::new(DashMap::new());
 
         thread::spawn(move || {
             while !cancel_clone.load(Ordering::Relaxed) {
@@ -120,7 +115,7 @@ impl TtyUi {
 
                 let screen = Self::render_screen(
                     &[
-                        &Line::from(title_clone.as_str()).center(width),
+                        &title.center(width).truncate(width),
                         &progress_bar,
                         &recent_log_display,
                     ],
@@ -128,18 +123,14 @@ impl TtyUi {
                     height,
                 );
 
-                let screen_deduped = Self::remove_cached(screen, &line_cache_clone);
+                let screen_deduped = Self::remove_cached(screen, &line_cache);
 
                 Self::print_deduped_lines(&screen_deduped);
                 thread::sleep(Duration::from_millis(500));
             }
         });
 
-        Some(Self {
-            cancel,
-            line_cache,
-            _fan: fan,
-        })
+        Some(Self { cancel, _fan: fan })
     }
 
     pub fn cancel(&self) {

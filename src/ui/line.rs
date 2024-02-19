@@ -1,6 +1,8 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::ui::segment::Segment;
 use crate::ui::ui_component::UiComponent;
+use std::io::stdout;
+use termion::cursor::DetectCursorPos;
 
 /// A line of (optionally styled) text for printing to a TTY.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -15,6 +17,10 @@ impl Line {
         for seg in segments.into_iter() {
             if seg.content().is_empty() {
                 continue;
+            }
+
+            if seg.content().contains('\n') {
+                panic!("Lines cannot contain newlines in them.");
             }
 
             match segs.last() {
@@ -111,7 +117,7 @@ impl Line {
         self.iter().map(|x| x.content()).collect()
     }
 
-    /// Prints the line to stdout.
+    /// Prints the line to stdout, without a newline at the end.
     pub fn print(&self) {
         for seg in self.segments.iter() {
             seg.print();
@@ -142,6 +148,35 @@ impl Line {
     }
 }
 
+fn print_lines_notty<'a, I: IntoIterator<Item = &'a Line>>(lines: I) {
+    for line in lines {
+        println!("{}", line.plaintext());
+    }
+}
+
+pub fn print_lines<'a, I: IntoIterator<Item = &'a Line>>(lines: I) {
+    let width = match termion::terminal_size() {
+        Err(_) => return print_lines_notty(lines),
+        Ok((_, w)) => w as usize,
+    };
+
+    let mut pos = match stdout().cursor_pos() {
+        Err(_) => return print_lines_notty(lines),
+        Ok((_, p)) => p as usize,
+    };
+
+    for line in lines {
+        line.print();
+        pos += line.len();
+
+        if pos != width + 1 {
+            println!();
+        }
+
+        pos = 1;
+    }
+}
+
 impl<I: Into<Segment>> From<I> for Line {
     fn from(value: I) -> Self {
         Self::from_iter([value.into()])
@@ -167,7 +202,7 @@ impl UiComponent for Line {
 /// Makes a Line from zero or more comma-separated `Into<Segment>`.
 macro_rules! mkline {
     ($($arg:expr),*) => {
-        Line::from_iter([$(crate::ui::segment::Segment::from($arg),)*])
+        crate::ui::line::Line::from_iter([$(crate::ui::segment::Segment::from($arg),)*])
     };
 }
 

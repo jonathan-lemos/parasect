@@ -1,6 +1,6 @@
 use crate::task::cancellable_task::CancellableTask;
 use crossbeam_channel::{bounded, Receiver, Sender};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 /// Asynchronously sends a single T that may be cancelled.
 ///
@@ -82,8 +82,7 @@ unsafe impl<T> Sync for CancellableMessage<T> where T: Send + Sync {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task::test_util::test_util::assert_result_eq;
-    use crate::task::test_util::test_util::*;
+    use crate::task::test_util::*;
     use crate::test_util::test_util::test_util::detect_flake;
     use std::thread;
 

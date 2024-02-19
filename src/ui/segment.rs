@@ -86,6 +86,7 @@ impl Segment {
     }
 
     pub fn print(&self) {
+        self.color.print();
         for attr in self.attributes.iter() {
             attr.print();
         }

@@ -14,7 +14,7 @@ use crossbeam_channel::Receiver;
 ///
 /// The logs stops outputting when this struct is dropped.
 pub struct NoTtyUi {
-    receiver_loop: BackgroundLoop,
+    _receiver_loop: BackgroundLoop,
 }
 
 impl NoTtyUi {
@@ -49,10 +49,15 @@ impl NoTtyUi {
         }
     }
 
-    pub fn start(initial_range: NumericRange, event_receiver: Receiver<Event>) -> Self {
+    pub fn start(
+        initial_range: NumericRange,
+        command_string: String,
+        event_receiver: Receiver<Event>,
+    ) -> Self {
         println!("Parasecting over range {}", initial_range);
+        println!("Command: {}", command_string);
         Self {
-            receiver_loop: BackgroundLoop::spawn(event_receiver, |event| {
+            _receiver_loop: BackgroundLoop::spawn(event_receiver, |event| {
                 println!("{}", Self::make_log_message(&event));
                 DontCancel
             }),
