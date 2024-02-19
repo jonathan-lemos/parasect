@@ -61,9 +61,7 @@ fn run_parasect(args: &CliArgs) -> CliResult<IBig> {
     }
 }
 
-fn main() -> ExitCode {
-    let args = CliArgs::parse();
-
+fn execute(args: &CliArgs) -> ExitCode {
     let result = run_parasect(&args);
 
     let (lines, ret) = match result {
@@ -74,4 +72,9 @@ fn main() -> ExitCode {
     print_lines(lines.iter());
 
     ret
+}
+
+fn main() -> ExitCode {
+    let args = CliArgs::parse();
+    execute(&args)
 }
