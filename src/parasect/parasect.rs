@@ -112,6 +112,10 @@ where
         range: &NumericRange,
         answer: ParasectPayloadAnswer,
     ) -> BackgroundLoopBehavior {
+        if range.is_empty() {
+            return DontCancel;
+        }
+
         self.queue.invalidate(&range);
 
         for worker in self.workers.iter() {

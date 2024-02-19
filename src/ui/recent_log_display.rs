@@ -103,9 +103,9 @@ impl RecentLogDisplay {
                         " x=",
                         (&wm.point, Color::Blue, Attributes::Bold),
                         " range=[",
-                        (wm.left.first().unwrap(), Color::Blue),
+                        (wm.left.first().unwrap_or(wm.point.clone()), Color::Blue),
                         ", ",
-                        (wm.right.last().unwrap(), Color::Blue),
+                        (wm.right.last().unwrap_or(wm.point.clone()), Color::Blue),
                         "]"
                     )
                 }
@@ -120,9 +120,9 @@ impl RecentLogDisplay {
                         " x=",
                         (&wm.point, Color::Blue, Attributes::Bold),
                         " range=[",
-                        (wm.left.first().unwrap(), Color::Blue),
+                        (wm.left.first().unwrap_or(wm.point.clone()), Color::Blue),
                         ", ",
-                        (wm.right.last().unwrap(), Color::Blue),
+                        (wm.right.last().unwrap_or(wm.point.clone()), Color::Blue),
                         "]"
                     )
                 }
@@ -135,9 +135,9 @@ impl RecentLogDisplay {
                         " x=",
                         (&wm.point, Color::Blue, Attributes::Bold),
                         " range=[",
-                        (wm.left.first().unwrap(), Color::Blue),
+                        (wm.left.last().unwrap_or(wm.point.clone()), Color::Blue),
                         ", ",
-                        (wm.right.last().unwrap(), Color::Blue),
+                        (wm.right.last().unwrap_or(wm.point.clone()), Color::Blue),
                         "]"
                     )
                 }

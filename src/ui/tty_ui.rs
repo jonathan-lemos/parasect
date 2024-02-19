@@ -108,6 +108,7 @@ impl TtyUi {
 
         thread::spawn(move || {
             while !cancel_clone.load(Ordering::Relaxed) {
+                println!("{}", termion::cursor::Goto(1, 1));
                 let (width, height) = unwrap_or!(Self::get_bounds(), {
                     thread::sleep(Duration::from_millis(500));
                     continue;

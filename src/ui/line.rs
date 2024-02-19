@@ -160,20 +160,13 @@ pub fn print_lines<'a, I: IntoIterator<Item = &'a Line>>(lines: I) {
         Ok((_, w)) => w as usize,
     };
 
-    let mut pos = match stdout().cursor_pos() {
-        Err(_) => return print_lines_notty(lines),
-        Ok((_, p)) => p as usize,
-    };
-
     for line in lines {
+        let line = line.pad(width);
         line.print();
-        pos += line.len();
 
-        if pos != width + 1 {
+        if line.len() != width {
             println!();
         }
-
-        pos = 1;
     }
 }
 
@@ -458,5 +451,15 @@ mod tests {
         .into_boxed_slice();
 
         assert_eq!(m.segments, segs)
+    }
+
+    #[test]
+    fn test_debug_line_render() {
+        let line = mkline!(
+            ("sus", Color::Red),
+            ("amogus", Color::Yellow, Attributes::Bold)
+        );
+
+        print_lines([&line]);
     }
 }
