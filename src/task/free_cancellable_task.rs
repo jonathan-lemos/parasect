@@ -1,29 +1,35 @@
 use crate::task::cancellable_task::CancellableTask;
+use crate::threading::notifiable::Notifiable;
+use crossbeam_channel::Sender;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Wraps a value in the CancellableTask trait.
 ///
-/// cancel() will return None instead of the given value.
-pub struct FreeCancellableTask<T: Send + Sync> {
+/// cancel() before notify() or wait() will return None instead of the given value.
+pub struct FreeCancellableTask<T>
+where
+    T: Send + Sync + Clone + 'static,
+{
     value: T,
     cancelled: AtomicBool,
     value_was_returned: AtomicBool,
 }
 
-impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
-    fn join(&self) -> Option<&T> {
-        if self.cancelled.load(Ordering::Relaxed)
-            && !self.value_was_returned.load(Ordering::Relaxed)
-        {
-            None
-        } else {
-            self.value_was_returned.store(true, Ordering::Relaxed);
-            Some(&self.value)
-        }
-    }
-
-    fn join_into(self) -> Option<T> {
-        Some(self.value)
+impl<T> CancellableTask<T> for FreeCancellableTask<T>
+where
+    T: Send + Sync + Clone + 'static,
+{
+    fn notify_when_done(&self, notifiable: impl Notifiable<Message = Option<T>>) {
+        notifiable.notify(
+            if self.cancelled.load(Ordering::Relaxed)
+                && !self.value_was_returned.load(Ordering::Relaxed)
+            {
+                None
+            } else {
+                self.value_was_returned.store(true, Ordering::Relaxed);
+                Some(self.value.clone())
+            },
+        );
     }
 
     fn request_cancellation(&self) {
@@ -31,7 +37,10 @@ impl<T: Send + Sync> CancellableTask<T> for FreeCancellableTask<T> {
     }
 }
 
-impl<T: Send + Sync> FreeCancellableTask<T> {
+impl<T> FreeCancellableTask<T>
+where
+    T: Send + Sync + Clone + 'static,
+{
     /// Creates a CancellableTask out of a T.
     pub fn new(value: T) -> Self {
         Self {
@@ -46,19 +55,40 @@ impl<T: Send + Sync> FreeCancellableTask<T> {
 mod tests {
     use super::*;
     use crate::task::test_util::*;
+    use crossbeam_channel::bounded;
     use proptest::prelude::*;
 
     #[test]
-    fn returns_value() {
+    fn notify_returns_value() {
         let task = FreeCancellableTask::<i64>::new(69);
-        assert_result_eq!(task.join(), 69);
+        let (s, r) = bounded(1);
+
+        task.notify_when_done(s);
+        assert_result_eq!(r.recv().unwrap(), 69);
     }
 
     #[test]
-    fn returns_none_on_cancel() {
+    fn notify_returns_none_on_cancel() {
+        let task = FreeCancellableTask::<i64>::new(69);
+        let (s, r) = bounded(1);
+
+        task.request_cancellation();
+        task.notify_when_done(s);
+
+        assert_eq!(r.recv().unwrap(), None);
+    }
+
+    #[test]
+    fn wait_returns_value() {
+        let task = FreeCancellableTask::<i64>::new(69);
+        assert_result_eq!(task.wait(), 69);
+    }
+
+    #[test]
+    fn wait_returns_none_on_cancel() {
         let task = FreeCancellableTask::<i64>::new(69);
         task.request_cancellation();
-        assert_eq!(task.join(), None);
+        assert_eq!(task.wait(), None);
     }
 
     #[test]

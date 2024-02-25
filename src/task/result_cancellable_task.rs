@@ -50,9 +50,13 @@ where
     }
 
     fn request_cancellation(&self) -> () {
+        println!("result cancellable task cancellation");
         let _ = self.value.set(None);
         match self.inner_task.take() {
-            Some(Some(c)) => c.request_cancellation(),
+            Some(Some(c)) => {
+                println!("result cancellable task cancelling inner");
+                c.request_cancellation()
+            }
             _ => {}
         }
     }

@@ -109,7 +109,11 @@ impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableS
 
     fn request_cancellation(&self) -> () {
         self.msg.cancel();
-        let _ = self.child.kill();
+        if let Err(e) = self.child.kill() {
+            println!("failed to kill child: {:?}", e);
+        } else {
+            println!("killed child");
+        }
     }
 }
 

@@ -1,8 +1,6 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::ui::segment::Segment;
 use crate::ui::ui_component::UiComponent;
-use std::io::stdout;
-use termion::cursor::DetectCursorPos;
 
 /// A line of (optionally styled) text for printing to a TTY.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]

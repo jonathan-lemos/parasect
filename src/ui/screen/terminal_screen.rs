@@ -1,12 +1,11 @@
 use crate::ui::line::Line;
 use crate::ui::screen::screen::{Dimensions, Screen};
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
-pub struct TerminalScreen {}
-
 static INSTANTIATED: Mutex<bool> = Mutex::new(false);
+
+pub struct TerminalScreen {}
 
 impl TerminalScreen {
     /// Creates a new `TerminalScreen`.
@@ -34,7 +33,11 @@ impl TerminalScreen {
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
         println!("{}", termion::cursor::Restore);
-        let mut instantiated_lock = INSTANTIATED.lock().unwrap();
+        let mut instantiated_lock = match INSTANTIATED.lock() {
+            Ok(l) => l,
+            // if the mutex is poisoned, there's no point in changing its value
+            Err(_) => return,
+        };
         *instantiated_lock.deref_mut() = false;
     }
 }
@@ -52,13 +55,29 @@ impl Screen for TerminalScreen {
     }
 
     fn move_cursor(&mut self, row: usize, col: usize) {
-        println!(
+        print!(
             "{}",
             termion::cursor::Goto((row as u16) + 1, (col as u16) + 1)
         );
     }
 
+    fn newline(&mut self) {
+        println!()
+    }
+
     fn reset(&mut self) {
         print!("{}{}", termion::clear::All, termion::cursor::Goto(1, 1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_multiple_instantiation_panics() {
+        let _t1 = TerminalScreen::new();
+        TerminalScreen::new();
     }
 }

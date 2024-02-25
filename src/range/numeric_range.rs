@@ -214,7 +214,7 @@ impl NumericRange {
     }
 
     /// Makes a range of numbers from [low, high).
-    pub fn from_endpoints_excluding_end<A: Into<IBig>, B: Into<IBig>>(low: A, high: B) -> Self {
+    pub fn from_endpoints_excluding_end(low: impl Into<IBig>, high: impl Into<IBig>) -> Self {
         let low = low.into();
         let high = high.into();
 
@@ -229,7 +229,7 @@ impl NumericRange {
     }
 
     /// Makes a range of numbers from [low, high].
-    pub fn from_endpoints_inclusive<A: Into<IBig>, B: Into<IBig>>(low: A, high: B) -> Self {
+    pub fn from_endpoints_inclusive(low: impl Into<IBig>, high: impl Into<IBig>) -> Self {
         let low = low.into();
         let high = high.into();
 
@@ -244,7 +244,7 @@ impl NumericRange {
     }
 
     /// Makes a range of a single number.
-    pub fn from_point<A: Into<IBig>>(num: A) -> Self {
+    pub fn from_point(num: impl Into<IBig>) -> Self {
         let low = num.into();
         let high = low.clone();
 
@@ -252,7 +252,7 @@ impl NumericRange {
     }
 
     /// Makes a range of [low, low + length)
-    pub fn from_point_and_length<A: Into<IBig>, B: Into<IBig>>(low: IBig, length: UBig) -> Self {
+    pub fn from_point_and_length(low: impl Into<IBig>, length: impl Into<UBig>) -> Self {
         let low: IBig = low.into();
         let length: UBig = length.into();
 

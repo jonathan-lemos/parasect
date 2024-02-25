@@ -2,6 +2,7 @@ use crate::parasect::event::Event;
 use crate::range::numeric_range::NumericRange;
 use crate::ui::line::Line;
 use crate::ui::no_tty_ui::NoTtyUi;
+use crate::ui::screen::terminal_screen::TerminalScreen;
 use crate::ui::tty_ui::TtyUi;
 use crate::ui::ui::Ui::*;
 use crossbeam_channel::Receiver;
@@ -25,15 +26,20 @@ impl Ui {
                 event_receiver,
             ))
         } else {
-            TtyUi::start(initial_range.clone(), title.clone(), event_receiver.clone())
-                .map(Tty)
-                .unwrap_or_else(|| {
-                    NoTty(NoTtyUi::start(
-                        initial_range,
-                        title.plaintext(),
-                        event_receiver,
-                    ))
-                })
+            TtyUi::start(
+                initial_range.clone(),
+                title.clone(),
+                event_receiver.clone(),
+                TerminalScreen::new(),
+            )
+            .map(Tty)
+            .unwrap_or_else(|| {
+                NoTty(NoTtyUi::start(
+                    initial_range,
+                    title.plaintext(),
+                    event_receiver,
+                ))
+            })
         }
     }
 }

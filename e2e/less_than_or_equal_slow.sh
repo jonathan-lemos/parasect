@@ -1,6 +1,6 @@
 #!/bin/sh
 
-sleep $((RANDOM % 5))
+sleep $((RANDOM % 10))
 
 if [ $1 -le $2 ]; then
   exit 0

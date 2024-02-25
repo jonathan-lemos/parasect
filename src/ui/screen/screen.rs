@@ -48,17 +48,26 @@ impl From<(usize, usize)> for Dimensions {
 }
 
 pub trait Screen {
-    /// Prints a line like `println!()` would.
+    /// Prints a line like `print!()` would. Use `append_line_with_newline()` to include a newline.
     fn append_line(&mut self, line: &Line);
+
     /// Gets the dimensions (in characters) of the screen.
     fn dimensions(&self) -> Dimensions;
+
     /// Moves the cursor to the given coordinate (both 0-indexed).
     fn move_cursor(&mut self, row: usize, col: usize);
+
+    /// Moves the cursor to the start of the next line.
+    fn newline(&mut self);
+
     /// Prints a line starting from the first character in the given row (0-indexed).
+    ///
+    /// Also moves the cursor to the end of the written line.
     fn print_line_at(&mut self, line: &Line, row: usize) {
         self.move_cursor(row, 0);
         self.append_line(line);
     }
+
     /// Clears the screen, and resets the cursor to (0, 0).
     fn reset(&mut self);
 }

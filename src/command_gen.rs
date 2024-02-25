@@ -57,7 +57,6 @@ impl CommandGen {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collections::collect_collection::CollectVec;
     use crate::test_util::test_util::test_util::ib;
 
     #[test]

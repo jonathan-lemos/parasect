@@ -65,7 +65,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossbeam_channel::unbounded;
 
     #[test]
     fn test_fan() {

@@ -27,141 +27,130 @@ macro_rules! assert_result_eq {
 }
 
 use crate::task::cancellable_task::CancellableTask;
+use crate::task::test_cancellable_task::TestCancellableTask;
 pub(crate) use assert_result_eq;
+use crossbeam_channel::bounded;
 use std::fmt::Debug;
 use std::thread;
 
-fn assert_join_idempotent<T, C>(task: C)
+fn assert_notify_same<T, C>(task: C)
 where
-    T: Eq + Debug + Send + Sync,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
-    let v1 = task.join();
-    let v2 = task.join();
+    let (s1, r1) = bounded(1);
+    let (s2, r2) = bounded(1);
+
+    task.notify_when_done(s1);
+    task.notify_when_done(s2);
+
+    assert_eq!(
+        r1.recv().unwrap(),
+        r2.recv().unwrap(),
+        "All notifiers should get the same value."
+    );
+}
+
+fn assert_wait_idempotent<T, C>(task: C)
+where
+    T: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<T>,
+{
+    let v1 = task.wait();
+    let v2 = task.wait();
 
     assert_eq!(v1, v2, ".join() was expected to be idempotent");
 }
 
-fn assert_join_clone_equals_join_into<T, C>(task: C)
+fn assert_cancel_after_wait_ignored<T, C>(task: C)
 where
-    T: Eq + Debug + Send + Sync + Clone,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
-    let v1 = task.join_clone();
-    let v2 = task.join_into();
-
-    assert_eq!(v1, v2, ".join_clone() was expected to equal .join_into()");
-}
-
-fn assert_cancel_after_join_ignored<T, C>(task: C)
-where
-    T: Eq + Debug + Send + Sync,
-    C: CancellableTask<T>,
-{
-    let v1 = task.join();
+    let v1 = task.wait();
     task.request_cancellation();
-    let v2 = task.join();
+    let v2 = task.wait();
     assert_eq!(
         v1, v2,
         ".request_cancellation() should be ignored after a .join()"
     );
 }
 
-fn assert_join_clone_equals_join_1<T, C>(task: C)
-where
-    T: Eq + Debug + Send + Sync + Clone,
-    C: CancellableTask<T>,
-{
-    let v1 = task.join_clone();
-    let v2 = task.join();
-
-    assert_eq!(
-        v1.as_ref(),
-        v2,
-        ".join_clone() should be a clone of .join()"
-    );
-}
-
-fn assert_join_clone_equals_join_2<T, C>(task: C)
-where
-    T: Eq + Debug + Send + Sync + Clone,
-    C: CancellableTask<T>,
-{
-    let v1 = task.join();
-    let v2 = task.join_clone();
-
-    assert_eq!(
-        v1,
-        v2.as_ref(),
-        ".join_clone() should be a clone of .join()"
-    );
-}
-
 fn assert_cancel_idempotent<T, C>(task: C)
 where
-    T: Eq + Debug + Send + Sync,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
     task.request_cancellation();
-    let v1 = task.join();
+    let v1 = task.wait();
     task.request_cancellation();
-    let v2 = task.join();
+    let v2 = task.wait();
 
     assert_eq!(v1, v2, ".request_cancellation() should be idempotent");
 }
 
-pub fn assert_cancellabletask_invariants_noclone<T, C, F>(task_factory: F)
+pub fn assert_cancellabletask_invariants<T, C, F>(task_factory: F)
 where
-    T: Eq + Debug + Send + Sync,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
     F: Fn() -> C,
 {
-    assert_join_idempotent(task_factory());
-    assert_cancel_after_join_ignored(task_factory());
+    assert_notify_same(task_factory());
+    assert_wait_idempotent(task_factory());
+    assert_cancel_after_wait_ignored(task_factory());
     assert_cancel_idempotent(task_factory());
 }
 
-pub fn assert_cancellabletask_invariants<T, C, F>(task_factory: F)
+fn assert_threaded_notify_idempotent<T, C>(task: C)
 where
-    T: Eq + Debug + Send + Sync + Clone,
-    C: CancellableTask<T>,
-    F: Fn() -> C,
-{
-    assert_join_clone_equals_join_into(task_factory());
-    assert_join_clone_equals_join_1(task_factory());
-    assert_join_clone_equals_join_2(task_factory());
-    assert_cancellabletask_invariants_noclone(task_factory);
-}
-
-fn assert_threaded_joins_idempotent<T, C>(task: C)
-where
-    T: Eq + Debug + Send + Sync,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
     let (v1, v2, v3) = thread::scope(|scope| {
-        let t1 = scope.spawn(|| task.join());
-        let t2 = scope.spawn(|| task.join());
-        let t3 = scope.spawn(|| task.join());
+        let (s1, r1) = bounded(1);
+        let (s2, r2) = bounded(1);
+        let (s3, r3) = bounded(1);
+
+        scope.spawn(|| task.notify_when_done(s1));
+        scope.spawn(|| task.notify_when_done(s2));
+        scope.spawn(|| task.notify_when_done(s3));
+
+        (r1.recv().unwrap(), r2.recv().unwrap(), r3.recv().unwrap())
+    });
+
+    assert_eq!(v1, v2, ".wait() should be idempotent");
+    assert_eq!(v2, v3, ".wait() should be idempotent");
+}
+
+fn assert_threaded_waits_idempotent<T, C>(task: C)
+where
+    T: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<T>,
+{
+    let (v1, v2, v3) = thread::scope(|scope| {
+        let t1 = scope.spawn(|| task.wait());
+        let t2 = scope.spawn(|| task.wait());
+        let t3 = scope.spawn(|| task.wait());
 
         (t1.join().unwrap(), t2.join().unwrap(), t3.join().unwrap())
     });
 
-    assert_eq!(v1, v2, ".join() should be idempotent");
-    assert_eq!(v2, v3, ".join() should be idempotent");
+    assert_eq!(v1, v2, ".wait() should be idempotent");
+    assert_eq!(v2, v3, ".wait() should be idempotent");
 }
 
-fn assert_threaded_cancel_join_safe<T, C>(task: C)
+fn assert_threaded_cancel_wait_safe<T, C>(task: C)
 where
-    T: Eq + Debug + Send + Sync,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
     let (v1, v2, v3) = thread::scope(|scope| {
         scope.spawn(|| task.request_cancellation());
-        let t1 = scope.spawn(|| task.join());
+        let t1 = scope.spawn(|| task.wait());
         scope.spawn(|| task.request_cancellation());
-        let t2 = scope.spawn(|| task.join());
+        let t2 = scope.spawn(|| task.wait());
         scope.spawn(|| task.request_cancellation());
-        let t3 = scope.spawn(|| task.join());
+        let t3 = scope.spawn(|| task.wait());
         scope.spawn(|| task.request_cancellation());
 
         (t1.join().unwrap(), t2.join().unwrap(), t3.join().unwrap())
@@ -173,10 +162,160 @@ where
 
 pub fn assert_cancellabletask_thread_safe<T, C, F>(task_factory: F)
 where
-    T: Eq + Debug + Send + Sync + Clone,
+    T: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
     F: Fn() -> C,
 {
-    assert_threaded_joins_idempotent(task_factory());
-    assert_threaded_cancel_join_safe(task_factory());
+    assert_threaded_notify_idempotent(task_factory());
+    assert_threaded_waits_idempotent(task_factory());
+    assert_threaded_cancel_wait_safe(task_factory());
+}
+
+pub fn assert_higher_order_notify_before<A, B, C>(
+    value: A,
+    expected_eq: B,
+    inner: TestCancellableTask<A>,
+    task: C,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+{
+    let (s, r) = bounded(1);
+
+    inner.send(value);
+    task.notify_when_done(s);
+    assert_eq!(r.recv().unwrap(), Some(expected_eq));
+}
+
+pub fn assert_higher_order_notify_after<A, B, C>(
+    value: A,
+    expected_eq: B,
+    inner: TestCancellableTask<A>,
+    task: C,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+{
+    let v = thread::scope(|scope| {
+        let (s, r) = bounded(1);
+        task.notify_when_done(s);
+
+        inner.send(value);
+        r.recv().unwrap()
+    });
+
+    assert_eq!(v, Some(expected_eq));
+}
+
+pub fn assert_higher_order_wait_before<A, B, C>(
+    value: A,
+    expected_eq: B,
+    inner: TestCancellableTask<A>,
+    task: C,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+{
+    inner.send(value);
+    assert_eq!(task.wait(), Some(expected_eq));
+}
+
+pub fn assert_higher_order_wait_after<A, B, C>(
+    value: A,
+    expected_eq: B,
+    inner: TestCancellableTask<A>,
+    task: C,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+{
+    let v = thread::scope(|scope| {
+        let handle = scope.spawn(|| task.wait());
+        inner.wait_for_join();
+        inner.send(value);
+
+        handle.join().unwrap()
+    });
+
+    assert_eq!(v, Some(expected_eq));
+}
+
+pub fn assert_higher_order_cancellabletask_eq<A, B, C, F>(
+    value: A,
+    expected_eq: B,
+    higher_order_task_factory: F,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+    F: Fn() -> (TestCancellableTask<A>, C),
+{
+    let (tt, t) = higher_order_task_factory();
+    assert_higher_order_notify_before(value.clone(), expected_eq.clone(), tt, t);
+
+    let (tt, t) = higher_order_task_factory();
+    assert_higher_order_notify_after(value.clone(), expected_eq.clone(), tt, t);
+
+    let (tt, t) = higher_order_task_factory();
+    assert_higher_order_wait_before(value.clone(), expected_eq.clone(), tt, t);
+
+    let (tt, t) = higher_order_task_factory();
+    assert_higher_order_wait_after(value.clone(), expected_eq.clone(), tt, t);
+}
+
+pub fn assert_cancel_before_no_deadlock<B, C>(task: C)
+where
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+{
+    task.request_cancellation();
+    task.wait();
+}
+
+pub fn assert_cancel_after_no_deadlock<A, B, C>(inner: TestCancellableTask<A>, task: C)
+where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+{
+    thread::scope(|scope| {
+        let handle = scope.spawn(|| task.wait());
+        inner.wait_for_join();
+        inner.request_cancellation();
+
+        handle.join().unwrap();
+    });
+}
+
+pub fn assert_higher_order_cancellabletask_cancel_no_deadlock<A, B, C, F>(
+    higher_order_task_factory: F,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+    F: Fn() -> (TestCancellableTask<A>, C),
+{
+    let (_tt, t) = higher_order_task_factory();
+    assert_cancel_before_no_deadlock(t);
+
+    let (tt, t) = higher_order_task_factory();
+    assert_cancel_after_no_deadlock(tt, t);
+}
+
+pub fn assert_higher_order_cancellabletask_invariants<A, B, C, F>(
+    value: A,
+    expected_eq: B,
+    higher_order_task_factory: F,
+) where
+    A: Eq + Debug + Send + Sync + Clone + 'static,
+    B: Eq + Debug + Send + Sync + Clone + 'static,
+    C: CancellableTask<B>,
+    F: (Fn() -> (TestCancellableTask<A>, C)),
+{
+    assert_higher_order_cancellabletask_eq(value, expected_eq, &higher_order_task_factory);
+    assert_higher_order_cancellabletask_cancel_no_deadlock(&higher_order_task_factory);
 }

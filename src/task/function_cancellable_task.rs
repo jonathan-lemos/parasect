@@ -1,67 +1,58 @@
-use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_task::CancellableTask;
+use crate::threading::async_value::AsyncValue;
+use crate::threading::notifiable::Notifiable;
 use crate::threading::single_use_cell::SingleUseCell;
+use crossbeam_channel::Sender;
+use std::sync::Arc;
+use std::thread;
 
 /// A CancellableTask that yields a value from the given function.
 ///
-/// The function does not execute until join() is called.
+/// The function does not execute until `notify()` or `wait()` is called.
+/// This struct is only usable in tests, because there's no way to interrupt the function once it starts, so if it infinitely loops, your program will never terminate without a SIGKILL.
 pub struct FunctionCancellableTask<T, F>
 where
-    T: Send + Sync,
-    F: FnOnce() -> T,
+    T: Send + Sync + Clone + 'static,
+    F: FnOnce() -> T + Send + 'static,
 {
-    cancellable_message: CancellableMessage<T>,
-    function: SingleUseCell<F>,
+    async_msg: Arc<AsyncValue<Option<T>>>,
+    function_cell: SingleUseCell<F>,
 }
 
 impl<T, F> FunctionCancellableTask<T, F>
 where
-    T: Send + Sync,
-    F: FnOnce() -> T,
+    T: Send + Sync + Clone + 'static,
+    F: FnOnce() -> T + Send + 'static,
 {
     pub fn new(func: F) -> Self {
+        let async_msg = Arc::new(AsyncValue::new());
+        let function_cell = SingleUseCell::new(func);
+
         Self {
-            cancellable_message: CancellableMessage::new(),
-            function: SingleUseCell::new(func),
+            async_msg,
+            function_cell,
         }
     }
 }
 
 impl<T, F> CancellableTask<T> for FunctionCancellableTask<T, F>
 where
-    T: Send + Sync,
-    F: FnOnce() -> T,
+    T: Send + Sync + Clone + 'static,
+    F: FnOnce() -> T + Send + 'static,
 {
-    fn join(&self) -> Option<&T> {
-        if let Some(f) = self.function.take() {
-            self.cancellable_message.send(f());
+    fn notify_when_done(&self, notifiable: impl Notifiable<Message = Option<T>>) {
+        if let Some(f) = self.function_cell.take() {
+            let async_msg_clone = self.async_msg.clone();
+            thread::spawn(move || {
+                async_msg_clone.send(Some(f()));
+            });
         }
-        self.cancellable_message.recv()
-    }
-
-    fn join_into(self) -> Option<T> {
-        self.join();
-        self.cancellable_message.recv_into()
+        self.async_msg.send(notifiable);
     }
 
     fn request_cancellation(&self) -> () {
-        self.function.take();
-        self.cancellable_message.cancel();
+        self.async_msg.send(None);
     }
-}
-
-unsafe impl<T, F> Send for FunctionCancellableTask<T, F>
-where
-    T: Send + Sync,
-    F: FnOnce() -> T,
-{
-}
-
-unsafe impl<T, F> Sync for FunctionCancellableTask<T, F>
-where
-    T: Send + Sync,
-    F: FnOnce() -> T,
-{
 }
 
 #[cfg(test)]
@@ -73,14 +64,14 @@ mod tests {
     #[test]
     fn returns_value() {
         let task = FunctionCancellableTask::new(|| 69);
-        assert_result_eq!(task.join(), 69);
+        assert_result_eq!(task.wait(), 69);
     }
 
     #[test]
     fn returns_none_on_cancel() {
         let task = FunctionCancellableTask::new(|| 69);
         task.request_cancellation();
-        assert_eq!(task.join(), None);
+        assert_eq!(task.wait(), None);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use ibig::IBig;
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Hash)]
 pub enum PointCompletionMessageType {
@@ -70,7 +71,10 @@ where
         result: Option<&ParasectPayloadResult>,
     ) -> WorkerMessage {
         let msg_type = match result {
-            None => Cancelled,
+            None => {
+                println!("making cancelled msg");
+                Cancelled
+            }
             Some(a) => Completed(a.clone()),
         };
 
@@ -101,6 +105,7 @@ where
                 let cancel_receiver_loop =
                     ScopedBackgroundLoop::spawn(scope, self.cancel_receiver.clone(), |range| {
                         if range.contains(midpoint.clone()) {
+                            println!("{:?} thread {:?} cancelling task", Instant::now(), self.id);
                             task.request_cancellation();
                             Cancel
                         } else {
@@ -109,6 +114,12 @@ where
                     });
 
                 let ret = task.join();
+                println!(
+                    "{:?} thread {:?} joined: {:?}",
+                    Instant::now(),
+                    self.id,
+                    ret
+                );
                 cancel_receiver_loop.cancel();
 
                 ret
@@ -122,5 +133,37 @@ where
 
     pub fn skip_if_in_range(&self, range: &NumericRange) {
         let _ = self.cancel_sender.try_send(range.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::cancellable_message::CancellableMessage;
+    use crate::test_util::test_util::test_util::r;
+    use crossbeam_channel::unbounded;
+
+    #[test]
+    fn test_skip_if_in_range() {
+        let (send, recv) = unbounded();
+
+        let range_queue = Arc::new(BisectingRangeQueue::new(r(0, 10)));
+        let rq_clone = range_queue.clone();
+
+        let worker = Worker::new(0, range_queue, send, |_range| CancellableMessage::new());
+
+        thread::scope(|scope| {
+            rq_clone.invalidate(&r(0, 4));
+            rq_clone.invalidate(&r(6, 10));
+            let t = scope.spawn(|| worker.process_while_remaining());
+            worker.skip_if_in_range(&r(0, 10));
+
+            t.join().unwrap();
+        });
+
+        let msg1 = recv.recv().unwrap();
+        let msg2 = recv.recv().unwrap();
+        assert_eq!(msg1.msg_type, Started);
+        assert_eq!(msg2.msg_type, Cancelled);
     }
 }

@@ -16,7 +16,6 @@ use crate::threading::background_loop::{BackgroundLoopBehavior, ScopedBackground
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
 use ibig::IBig;
-use num_cpus;
 use std::cmp::{max, min};
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};

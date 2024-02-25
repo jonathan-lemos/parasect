@@ -195,7 +195,7 @@ mod tests {
     use crate::parasect::types::ParasectPayloadResult::*;
     use crate::parasect::types::{ParasectPayloadAnswer, ParasectPayloadResult};
     use crate::test_util::test_util::test_util::{empty, ib, r};
-    use crate::ui::line::{mkline, print_lines};
+    use crate::ui::line::mkline;
     use crossbeam_channel::unbounded;
     use ibig::IBig;
     use std::thread;
