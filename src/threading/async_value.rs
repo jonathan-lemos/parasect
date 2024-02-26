@@ -1,15 +1,15 @@
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::notifiable::Notifiable;
+use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::{bounded, Sender};
-use std::fmt::{Debug, Write};
+use std::fmt::{Debug, Formatter, Write};
 use std::ops::{Deref, DerefMut};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 enum Inner<T>
 where
     T: Send + Clone,
 {
-    Waiters(Vec<Box<dyn Notifiable<Message = T>>>),
+    Waiters(Vec<Box<dyn Mailbox<'static, Message = T>>>),
     Value(T),
 }
 
@@ -18,7 +18,19 @@ pub struct AsyncValue<T>
 where
     T: Send + Clone,
 {
-    inner: RwLock<Inner<T>>,
+    inner: Arc<RwLock<Inner<T>>>,
+}
+
+impl<T> Debug for AsyncValue<T>
+where
+    T: Send + Clone + Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&match self.inner.read().unwrap().deref() {
+            Inner::Waiters(ws) => format!("AsyncValue({} awaiting)", ws.len()),
+            Inner::Value(v) => format!("AsyncValue(done {:?})", v),
+        })
+    }
 }
 
 impl<T> PartialEq for AsyncValue<T>
@@ -49,7 +61,7 @@ where
     /// Creates a new AsyncValue that's awaiting initialization through `send()`.
     pub fn new() -> Self {
         Self {
-            inner: RwLock::new(Inner::Waiters(Vec::new())),
+            inner: Arc::new(RwLock::new(Inner::Waiters(Vec::new()))),
         }
     }
 
@@ -67,9 +79,9 @@ where
     /// The Sender should be guaranteed to have enough capacity to hold a value, otherwise `send()` will block for the full Sender.
     ///
     /// If the `AsyncValue` is already initialized, immediately sends the value.
-    pub fn notify(&self, notifiable: impl Notifiable<Message = T> + Send + 'static) {
+    pub fn notify(&self, notifiable: impl Mailbox<'static, Message = T> + 'static) {
         if let Some(v) = self.get_value_if_exists() {
-            notifiable.notify(v);
+            notifiable.give_message(v);
             return;
         }
 
@@ -77,7 +89,7 @@ where
 
         match write.deref_mut() {
             Inner::Value(v) => {
-                notifiable.notify(v.clone());
+                notifiable.give_message(v.clone());
             }
             Inner::Waiters(ws) => ws.push(Box::new(notifiable)),
         };
@@ -86,25 +98,26 @@ where
     /// Initializes the `AsyncValue`.
     ///
     /// If it is already initialized, does nothing.
-    pub fn send(&self, value: T) {
+    pub fn send(&self, value: T) -> bool {
         if let Some(_) = self.get_value_if_exists() {
-            return;
+            return false;
         }
 
         let mut write = self.inner.write().unwrap();
 
         {
-            let mut ws = match write.deref_mut() {
-                Inner::Value(_) => return,
+            let ws = match write.deref_mut() {
+                Inner::Value(_) => return false,
                 Inner::Waiters(ws) => ws,
             };
 
             while let Some(w) = ws.pop() {
-                w.notify(value.clone());
+                w.give_message(value.clone());
             }
         }
 
         *write = Inner::Value(value);
+        true
     }
 
     /// Blocks until this `AsyncValue` is initialized, then returns the value.
@@ -117,22 +130,41 @@ where
 
 impl<T> From<T> for AsyncValue<T>
 where
-    T: Send + Clone,
+    T: Send + Clone + 'static,
 {
     fn from(value: T) -> Self {
         Self {
-            inner: RwLock::new(Inner::Value(value)),
+            inner: Arc::new(RwLock::new(Inner::Value(value))),
         }
     }
 }
 
-impl<T: Send + Clone> CancellableTask<T> for AsyncValue<Option<T>> {
-    fn notify_when_done(&self, sender: Sender<Option<T>>) {
-        self.send(sender);
+impl<T> Clone for AsyncValue<T>
+where
+    T: Send + Clone + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T: Send + Sync + Clone + 'static> CancellableTask<T> for AsyncValue<Option<T>> {
+    fn notify_when_done(&self, mailbox: impl Mailbox<'static, Message = Option<T>> + 'static) {
+        self.notify(mailbox);
     }
 
     fn request_cancellation(&self) -> () {
         self.send(None);
+    }
+}
+
+impl<T: Send + Sync + Clone + 'static> Mailbox<'static> for AsyncValue<T> {
+    type Message = T;
+
+    fn give_message(&self, msg: Self::Message) -> bool {
+        self.send(msg)
     }
 }
 

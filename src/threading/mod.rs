@@ -1,6 +1,7 @@
+pub mod actor;
 pub mod async_value;
-pub mod background_loop;
 pub mod fan;
-pub mod notifiable;
-pub mod once_reactor;
+pub mod mailbox;
+pub mod once_actor;
+mod once_mailbox;
 pub mod single_use_cell;

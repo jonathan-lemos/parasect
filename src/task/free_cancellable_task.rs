@@ -1,5 +1,5 @@
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::notifiable::Notifiable;
+use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::Sender;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,8 +19,8 @@ impl<T> CancellableTask<T> for FreeCancellableTask<T>
 where
     T: Send + Sync + Clone + 'static,
 {
-    fn notify_when_done(&self, notifiable: impl Notifiable<Message = Option<T>>) {
-        notifiable.notify(
+    fn notify_when_done(&self, notifiable: impl Mailbox<'static, Message = Option<T>> + 'static) {
+        notifiable.give_message(
             if self.cancelled.load(Ordering::Relaxed)
                 && !self.value_was_returned.load(Ordering::Relaxed)
             {

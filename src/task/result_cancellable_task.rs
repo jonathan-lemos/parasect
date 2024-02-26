@@ -1,32 +1,40 @@
 use crate::task::cancellable_task::CancellableTask;
+use crate::task::map_cancellable_task::MapValueCancellableTask;
+use crate::threading::async_value::AsyncValue;
+use crate::threading::mailbox::Mailbox;
 use crate::threading::single_use_cell::SingleUseCell;
-use std::sync::OnceLock;
+use std::sync::Arc;
 
 pub struct ResultCancellableTask<T, E, C>
 where
-    T: Send + Sync,
-    E: Send + Sync,
+    T: Send + Sync + Clone + 'static,
+    E: Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
-    inner_task: SingleUseCell<Option<C>>,
-    value: OnceLock<Option<Result<T, E>>>,
+    inner_task: Option<MapValueCancellableTask<T, Result<T, E>, C>>,
+    value: AsyncValue<Option<Result<T, E>>>,
 }
 
 impl<T, E, C> ResultCancellableTask<T, E, C>
 where
-    T: Send + Sync,
-    E: Send + Sync,
+    T: Send + Sync + Clone + 'static,
+    E: Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
     pub fn new(result: Result<C, E>) -> Self {
         match result {
-            Ok(t) => Self {
-                inner_task: SingleUseCell::new(Some(t)),
-                value: OnceLock::new(),
-            },
+            Ok(t) => {
+                let value = AsyncValue::new();
+                let t = t.map(Ok);
+                t.notify_when_done(value.clone());
+                Self {
+                    inner_task: Some(t),
+                    value,
+                }
+            }
             Err(e) => Self {
-                inner_task: SingleUseCell::empty(),
-                value: OnceLock::from(Some(Err(e))),
+                inner_task: None,
+                value: AsyncValue::from(Some(Err(e))),
             },
         }
     }
@@ -34,30 +42,21 @@ where
 
 impl<T, E, C> CancellableTask<Result<T, E>> for ResultCancellableTask<T, E, C>
 where
-    T: Send + Sync,
-    E: Send + Sync,
+    T: Send + Sync + Clone + 'static,
+    E: Send + Sync + Clone + 'static,
     C: CancellableTask<T>,
 {
-    fn join(&self) -> Option<&Result<T, E>> {
-        self.value
-            .get_or_init(|| self.inner_task.take().unwrap().unwrap().join_into().map(Ok))
-            .as_ref()
-    }
-
-    fn join_into(mut self) -> Option<Result<T, E>> {
-        self.join();
-        self.value.take().unwrap()
+    fn notify_when_done(
+        &self,
+        notifiable: impl Mailbox<'static, Message = Option<Result<T, E>>> + 'static,
+    ) {
+        self.value.notify_when_done(notifiable)
     }
 
     fn request_cancellation(&self) -> () {
-        println!("result cancellable task cancellation");
-        let _ = self.value.set(None);
-        match self.inner_task.take() {
-            Some(Some(c)) => {
-                println!("result cancellable task cancelling inner");
-                c.request_cancellation()
-            }
-            _ => {}
+        self.value.give_message(None);
+        if let Some(s) = &self.inner_task {
+            s.request_cancellation();
         }
     }
 }
@@ -78,19 +77,19 @@ mod tests {
     }
 
     #[test]
-    fn test_join_ok() {
+    fn test_wait_ok() {
         let r = ResultCancellableTask::new(wrap_result(FreeCancellableTask::new(69)));
 
-        let x = r.join();
-        assert_eq!(x, Some(&Ok(69)))
+        let x = r.wait();
+        assert_eq!(x, Some(Ok(69)));
     }
 
     #[test]
-    fn test_join_err() {
+    fn test_wait_err() {
         let r = ResultCancellableTask::new(wrap_err(69));
 
-        let x = r.join();
-        assert_eq!(x, Some(&Err(69)))
+        let x = r.wait();
+        assert_eq!(x, Some(Err(69)));
     }
 
     #[test]
@@ -99,8 +98,8 @@ mod tests {
 
         r.request_cancellation();
 
-        let x = r.join();
-        assert_eq!(x, None)
+        let x = r.wait();
+        assert_eq!(x, None);
     }
 
     #[test]
@@ -109,8 +108,8 @@ mod tests {
 
         r.request_cancellation();
 
-        let x = r.join();
-        assert_eq!(x, Some(&Err(69)))
+        let x = r.wait();
+        assert_eq!(x, Some(Err(69)));
     }
 
     #[test]

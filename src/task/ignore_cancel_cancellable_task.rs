@@ -1,5 +1,5 @@
 use crate::task::cancellable_task::CancellableTask;
-use crossbeam_channel::Sender;
+use crate::threading::mailbox::Mailbox;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -20,7 +20,7 @@ where
     T: Send + Sync + Clone + 'static,
     InnerTask: CancellableTask<T>,
 {
-    fn notify_when_done(&self, sender: Sender<Option<T>>) {
+    fn notify_when_done(&self, sender: impl Mailbox<'static, Message = Option<T>> + 'static) {
         self.inner.notify_when_done(sender);
     }
 

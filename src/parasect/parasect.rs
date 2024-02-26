@@ -9,10 +9,11 @@ use crate::parasect::worker::PointCompletionMessageType::Completed;
 use crate::parasect::worker::{Worker, WorkerMessage};
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
-use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
-use crate::threading::background_loop::{BackgroundLoopBehavior, ScopedBackgroundLoop};
+use crate::threading::actor::ActorBehavior::{ContinueProcessing, StopProcessing};
+use crate::threading::actor::{Actor, ActorBehavior};
+use crate::threading::async_value::AsyncValue;
+use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
 use ibig::IBig;
@@ -77,7 +78,7 @@ where
     latest_good: RwLock<IBig>,
     earliest_bad: RwLock<IBig>,
     results: DashMap<IBig, ParasectPayloadResult>,
-    failure_message: CancellableMessage<String>,
+    failure_message: AsyncValue<String>,
 }
 
 impl<'a, TTask, FPayload> ParasectController<'a, TTask, FPayload>
@@ -102,17 +103,13 @@ where
             latest_good: RwLock::new(IBig::from(settings.range.first().unwrap() - 1)),
             earliest_bad: RwLock::new(IBig::from(settings.range.last().unwrap() + 1)),
             results: DashMap::new(),
-            failure_message: CancellableMessage::new(),
+            failure_message: AsyncValue::new(),
         }
     }
 
-    fn invalidate_range(
-        &self,
-        range: &NumericRange,
-        answer: ParasectPayloadAnswer,
-    ) -> BackgroundLoopBehavior {
+    fn invalidate_range(&self, range: &NumericRange, answer: ParasectPayloadAnswer) {
         if range.is_empty() {
-            return DontCancel;
+            return;
         }
 
         self.queue.invalidate(&range);
@@ -126,15 +123,13 @@ where
                 .send(RangeInvalidated(range.clone(), answer))
                 .expect("Event sender was unexpectedly closed.");
         }
-
-        DontCancel
     }
 
     fn check_good_does_not_exceed_bad(&self) {
         let good_read = self.latest_good.read().unwrap();
         let bad_read = self.earliest_bad.read().unwrap();
         if good_read.deref() > bad_read.deref() {
-            self.failure_message.send(format!("A good {} was detected after a bad {}. Parasect requires 1 or more good followed by remaining bad.", good_read.deref(), bad_read.deref()))
+            self.failure_message.give_message(format!("A good {} was detected after a bad {}. Parasect requires 1 or more good followed by remaining bad.", good_read.deref(), bad_read.deref()));
         }
     }
 
@@ -156,7 +151,7 @@ where
         self.check_good_does_not_exceed_bad();
     }
 
-    fn handle_message(&self, message: WorkerMessage) -> BackgroundLoopBehavior {
+    fn handle_message(&self, message: WorkerMessage) -> ActorBehavior {
         if let Some(sender) = &self.settings.event_sender {
             sender
                 .send(WorkerMessageSent(message.clone()))
@@ -177,7 +172,7 @@ where
                     Stop(reason) => {
                         self.failure_message.send(reason.clone());
                         self.results.insert(message.point, result);
-                        return Cancel;
+                        return StopProcessing;
                     }
                 }
                 self.results.insert(message.point, result);
@@ -185,17 +180,14 @@ where
             _ => {}
         };
 
-        DontCancel
+        ContinueProcessing
     }
 
     fn run(self) -> DashMap<IBig, ParasectPayloadResult> {
         let self_ref = &self;
 
         thread::scope(|scope| {
-            let message_loop =
-                ScopedBackgroundLoop::spawn(scope, self_ref.message_receiver.clone(), |msg| {
-                    self_ref.handle_message(msg)
-                });
+            let message_loop = Actor::spawn_scoped(scope, |msg| self_ref.handle_message(msg));
 
             scope.spawn(move || {
                 let result = self_ref.failure_message.join();

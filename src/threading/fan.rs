@@ -1,87 +1,73 @@
-use crate::threading::background_loop::BackgroundLoop;
-use crate::threading::background_loop::BackgroundLoopBehavior::DontCancel;
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use std::ops::Deref;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex, RwLock};
+use crate::threading::actor::Actor;
+use crate::threading::mailbox::Mailbox;
+use std::sync::{Arc, RwLock};
 
 /// Fans out a receiver into 0 or more receivers. Each message will go to each subscriber.
 ///
 /// We have Pub/Sub at home.
 pub struct Fan<T>
 where
-    T: Send + Clone,
+    T: Send + Clone + 'static,
 {
-    outputs: Arc<RwLock<Vec<Sender<T>>>>,
-    _thread: BackgroundLoop,
-    receivers: Mutex<Vec<Pin<Box<Receiver<T>>>>>,
+    outputs: Arc<RwLock<Vec<Box<dyn Mailbox<Message = T> + 'static + Send + Sync>>>>,
+    message_spreader: Actor<T>,
 }
 
 impl<T> Fan<T>
 where
     T: Send + Clone + 'static,
 {
-    pub fn new(receiver: Receiver<T>) -> Self {
-        let outputs = Arc::new(RwLock::new(Vec::new()));
+    pub fn new() -> Self {
+        let outputs = Arc::new(RwLock::new(Vec::<
+            Box<dyn Mailbox<Message = T> + 'static + Send + Sync>,
+        >::new()));
 
         let outputs_clone = outputs.clone();
+        let message_spreader = Actor::spawn(move |msg: T| {
+            for mailbox in outputs_clone.read().unwrap().iter() {
+                mailbox.give_message(msg.clone());
+            }
+        });
 
         Self {
             outputs,
-            receivers: Mutex::new(Vec::new()),
-            _thread: BackgroundLoop::spawn(receiver, move |msg| {
-                for snd in outputs_clone.read().unwrap().iter() {
-                    let _ = snd.send(msg.clone());
-                }
-                DontCancel
-            }),
+            message_spreader,
         }
     }
 
+    pub fn mailbox(&self) -> impl Mailbox<Message = T> {
+        self.message_spreader.mailbox()
+    }
+
     /// Returns a Receiver that receives all the messages given to this Fan.
-    pub fn subscribe(&self) -> &Receiver<T> {
-        let (send, recv) = unbounded();
-
-        {
-            let mut outputs = self.outputs.write().unwrap();
-            outputs.push(send);
-        }
-
-        let mut receivers = self.receivers.lock().unwrap();
-        receivers.push(Box::pin(recv));
-
-        let pin_ref = receivers.last().unwrap();
-        let receiver_ref = pin_ref.deref();
-
-        // unsafe{} is necessary to get a reference to the data in the mutex.
-        // this is safe because the underlying pin prevents the data from moving,
-        // and this struct will never remove a value from the vec,
-        // so the reference shouldn't be invalidated until this struct drops,
-        // but the returned reference's lifetime is tied to this struct
-        unsafe { (receiver_ref as *const Receiver<T>).as_ref().unwrap() }
+    pub fn subscribe(&self, mailbox: Box<dyn Mailbox<Message = T> + 'static + Send + Sync>) {
+        let mut outputs = self.outputs.write().unwrap();
+        outputs.push(mailbox);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossbeam_channel::unbounded;
 
     #[test]
     fn test_fan() {
-        let (send, recv) = unbounded();
+        let f = Fan::new();
 
-        let f = Fan::new(recv);
+        let (s1, r1) = unbounded();
+        let (s2, r2) = unbounded();
 
-        let s1 = f.subscribe();
-        let s2 = f.subscribe();
+        f.subscribe(Box::new(s1));
+        f.subscribe(Box::new(s2));
 
-        send.send(1).unwrap();
-        send.send(2).unwrap();
+        f.mailbox().give_message(1);
+        f.mailbox().give_message(2);
 
-        assert_eq!(s1.recv(), Ok(1));
-        assert_eq!(s1.recv(), Ok(2));
+        assert_eq!(r1.recv(), Ok(1));
+        assert_eq!(r1.recv(), Ok(2));
 
-        assert_eq!(s2.recv(), Ok(1));
-        assert_eq!(s2.recv(), Ok(2));
+        assert_eq!(r2.recv(), Ok(1));
+        assert_eq!(r2.recv(), Ok(2));
     }
 }

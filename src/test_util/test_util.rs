@@ -5,7 +5,7 @@ pub mod test_util {
     use ibig::{IBig, UBig};
     use std::sync::Arc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     pub fn detect_flake(mut f: impl FnMut() -> ()) {
         for _ in 0..5000 {
@@ -29,8 +29,17 @@ pub mod test_util {
         NumericRange::from_endpoints_inclusive(low, high)
     }
 
-    pub fn wait_for_condition(mut condition: impl FnMut() -> bool) {
+    pub fn wait_for_condition(
+        mut condition: impl FnMut() -> bool,
+        timeout: Duration,
+        timeout_msg: impl ToString,
+    ) {
+        let start = Instant::now();
+
         while !condition() {
+            if Instant::now() - start > timeout {
+                panic!("{}", timeout_msg.to_string());
+            }
             thread::sleep(Duration::from_millis(5));
         }
     }

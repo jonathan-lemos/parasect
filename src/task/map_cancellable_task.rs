@@ -1,9 +1,8 @@
 use crate::task::cancellable_task::CancellableTask;
 use crate::threading::async_value::AsyncValue;
-use crate::threading::once_reactor::OnceReactor;
+use crate::threading::mailbox::Mailbox;
+use crate::threading::once_actor::OnceActor;
 use crate::threading::single_use_cell::SingleUseCell;
-use crossbeam_channel::Sender;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 /// A CancellableTask that maps another CancellableTask using a function.
@@ -13,9 +12,9 @@ where
     TNew: Send + Sync + Clone + 'static,
     InnerTask: CancellableTask<TOld>,
 {
-    inner_task: SingleUseCell<InnerTask>,
-    inner_task_reactor: OnceReactor<TOld>,
-    mapped_value: Arc<AsyncValue<TNew>>,
+    inner_task: InnerTask,
+    inner_task_reactor: OnceActor<'static, Option<TOld>>,
+    mapped_value: AsyncValue<Option<TNew>>,
 }
 
 impl<TOld, TNew, InnerTask> MapValueCancellableTask<TOld, TNew, InnerTask>
@@ -29,41 +28,36 @@ where
         inner: InnerTask,
         mapper: impl FnOnce(TOld) -> TNew + Send + 'static,
     ) -> Self {
-        let mapped_value = Arc::new(AsyncValue::new());
+        let mapped_value = AsyncValue::new();
         let mapped_value_clone = mapped_value.clone();
-        let inner_task_reactor = OnceReactor::new(move |told| {
-            mapped_value_clone.send(mapper(told));
+        let inner_task_reactor = OnceActor::spawn(move |told: Option<TOld>| {
+            mapped_value_clone.send(told.map(mapper));
         });
 
-        inner.notify_when_done()
+        inner.notify_when_done(inner_task_reactor.mailbox());
 
         Self {
-            inner_task: SingleUseCell::new(inner),
+            inner_task: inner,
             inner_task_reactor,
-            mapped_value: Arc::new(AsyncValue::new()),
+            mapped_value,
         }
     }
 }
 
-impl<TOld, TNew, Mapper, InnerTask> CancellableTask<TNew>
-    for MapValueCancellableTask<TOld, TNew, Mapper, InnerTask>
+impl<TOld, TNew, InnerTask> CancellableTask<TNew> for MapValueCancellableTask<TOld, TNew, InnerTask>
 where
     TOld: Send + Sync + Clone + 'static,
     TNew: Send + Sync + Clone + 'static,
-    Mapper: FnOnce(TOld) -> TNew + Send,
     InnerTask: CancellableTask<TOld>,
 {
-    fn notify_when_done(&self, sender: Sender<Option<TNew>>) {
-
+    fn notify_when_done(&self, mailbox: impl Mailbox<'static, Message = Option<TNew>> + 'static) {
+        self.mapped_value.notify_when_done(mailbox);
     }
 
     fn request_cancellation(&self) -> () {
-        todo!();
-        /*
-        let _ = self.inner_value.set(None);
-        self.mapper.take();
-        self.inner_task.take().inspect(|t| t.request_cancellation());
-         */
+        self.mapped_value.send(None);
+        self.inner_task.request_cancellation();
+        self.inner_task_reactor.assassinate();
     }
 }
 
@@ -78,23 +72,23 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn test_map_before() {
+    fn test_map_before_wait() {
         let test_task = TestCancellableTask::new();
         let task = test_task.clone().map(|x| x + 1);
 
         test_task.send(69);
-        let val = task.join();
+        let val = task.wait();
 
         assert_result_eq!(val, 70);
     }
 
     #[test]
-    fn test_map_after() {
+    fn test_map_after_wait() {
         let test_task = TestCancellableTask::new();
         let task = test_task.clone().map(|x| x + 1);
 
         let val = thread::scope(|scope| {
-            let handle = scope.spawn(|| task.join());
+            let handle = scope.spawn(|| task.wait());
             test_task.send(69);
             handle.join().unwrap()
         });
@@ -103,21 +97,21 @@ mod tests {
     }
 
     #[test]
-    fn test_cancel_before() {
+    fn test_cancel_before_wait() {
         let task = FunctionCancellableTask::new(|| 69).map(|x| x + 1);
 
         task.request_cancellation();
-        let val = task.join();
+        let val = task.wait();
 
         assert_eq!(val, None);
     }
 
     #[test]
-    fn test_cancel_after() {
+    fn test_cancel_after_wait() {
         let task = FunctionCancellableTask::new(|| 69).map(|x| x + 1);
 
         let val = thread::scope(|scope| {
-            let t = scope.spawn(|| task.join());
+            let t = scope.spawn(|| task.wait());
 
             task.request_cancellation();
 

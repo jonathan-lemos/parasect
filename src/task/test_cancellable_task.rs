@@ -1,19 +1,21 @@
-use crate::task::cancellable_message::CancellableMessage;
 use crate::task::cancellable_task::CancellableTask;
 use crate::test_util::test_util::test_util::wait_for_condition;
+use crate::threading::async_value::AsyncValue;
+use crate::threading::mailbox::Mailbox;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// A CancellableTask only for testing.
 ///
 /// Implements Clone, so you can `send()`/`join()` from another thread even when the SUT needs to "own" the CancellableTask.
 /// Will block indefinitely until `send()` is called.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TestCancellableTask<T>
 where
-    T: Send + Sync + Clone,
+    T: Send + Sync + Clone + 'static,
 {
-    msg: Arc<CancellableMessage<T>>,
+    msg: AsyncValue<Option<T>>,
     sent_values: Arc<Mutex<Vec<T>>>,
     cancel_called_times: Arc<AtomicUsize>,
     join_called_times: Arc<AtomicUsize>,
@@ -25,7 +27,7 @@ where
 {
     pub fn new() -> Self {
         Self {
-            msg: Arc::new(CancellableMessage::new()),
+            msg: AsyncValue::new(),
             sent_values: Arc::new(Mutex::new(Vec::new())),
             cancel_called_times: Arc::new(AtomicUsize::new(0)),
             join_called_times: Arc::new(AtomicUsize::new(0)),
@@ -34,15 +36,23 @@ where
 
     pub fn send(&self, value: T) {
         self.sent_values.lock().unwrap().push(value.clone());
-        self.msg.send(value);
+        self.msg.send(Some(value));
     }
 
-    pub fn wait_for_join(&self) {
-        wait_for_condition(|| self.join_called_times.load(Ordering::Relaxed) > 0);
+    pub fn wait_for_join(&self, timeout: Duration, msg: impl ToString) {
+        wait_for_condition(
+            || self.join_called_times.load(Ordering::Relaxed) > 0,
+            timeout,
+            msg,
+        );
     }
 
-    pub fn wait_for_cancel(&self) {
-        wait_for_condition(|| self.cancel_called_times.load(Ordering::Relaxed) > 0);
+    pub fn wait_for_cancel(&self, timeout: Duration, msg: impl ToString) {
+        wait_for_condition(
+            || self.cancel_called_times.load(Ordering::Relaxed) > 0,
+            timeout,
+            msg,
+        );
     }
 }
 
@@ -50,20 +60,12 @@ impl<T> CancellableTask<T> for TestCancellableTask<T>
 where
     T: Send + Sync + Clone,
 {
-    fn join(&self) -> Option<&T> {
-        let r = self.msg.join();
-        self.join_called_times.fetch_add(1, Ordering::Relaxed);
-        r
-    }
-
-    fn join_into(self) -> Option<T> {
-        let r = self.msg.join_clone();
-        self.join_called_times.fetch_add(1, Ordering::Relaxed);
-        r
+    fn notify_when_done(&self, mailbox: impl Mailbox<'static, Message = Option<T>> + 'static) {
+        self.msg.notify(mailbox);
     }
 
     fn request_cancellation(&self) -> () {
         self.cancel_called_times.fetch_add(1, Ordering::Relaxed);
-        self.msg.request_cancellation();
+        self.msg.give_message(None);
     }
 }

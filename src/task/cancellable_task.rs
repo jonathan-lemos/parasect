@@ -1,6 +1,6 @@
 use crate::task::ignore_cancel_cancellable_task::IgnoreCancelCancellableTask;
 use crate::task::map_cancellable_task::MapValueCancellableTask;
-use crate::threading::notifiable::Notifiable;
+use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::bounded;
 
 /// An asynchronous task that can be cancelled.
@@ -18,17 +18,19 @@ where
         IgnoreCancelCancellableTask::new(self)
     }
 
-    /// Sends a message to the sender when the task completes.
+    /// Sends a message to the `Mailbox` when the task completes.
     ///
     /// If it's already done, send the message immediately.
-    fn notify_when_done(&self, notifiable: impl Notifiable<Message = Option<T>> + 'static);
+    fn notify_when_done(&self, mailbox: impl Mailbox<'static, Message = Option<T>> + 'static);
 
     /// Maps the result of the CancellableTask.
-    fn map<R, Mapper>(self, mapper: Mapper) -> MapValueCancellableTask<T, R, Mapper, Self>
+    fn map<R>(
+        self,
+        mapper: impl FnOnce(T) -> R + Send + 'static,
+    ) -> MapValueCancellableTask<T, R, Self>
     where
         Self: Sized,
         R: Send + Sync + Clone + 'static,
-        Mapper: FnOnce(T) -> R + Send,
     {
         MapValueCancellableTask::new(self, mapper)
     }

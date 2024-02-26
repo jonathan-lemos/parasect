@@ -3,8 +3,8 @@ use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::background_loop::BackgroundLoopBehavior::{Cancel, DontCancel};
-use crate::threading::background_loop::ScopedBackgroundLoop;
+use crate::threading::actor::ActorBehavior::{ContinueProcessing, StopProcessing};
+use crate::threading::actor::ScopedBackgroundLoop;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use ibig::IBig;
 use std::sync::Arc;
@@ -107,9 +107,9 @@ where
                         if range.contains(midpoint.clone()) {
                             println!("{:?} thread {:?} cancelling task", Instant::now(), self.id);
                             task.request_cancellation();
-                            Cancel
+                            StopProcessing
                         } else {
-                            DontCancel
+                            ContinueProcessing
                         }
                     });
 

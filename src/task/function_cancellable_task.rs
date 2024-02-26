@@ -1,6 +1,6 @@
 use crate::task::cancellable_task::CancellableTask;
 use crate::threading::async_value::AsyncValue;
-use crate::threading::notifiable::Notifiable;
+use crate::threading::mailbox::Mailbox;
 use crate::threading::single_use_cell::SingleUseCell;
 use crossbeam_channel::Sender;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ where
     T: Send + Sync + Clone + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    async_msg: Arc<AsyncValue<Option<T>>>,
+    async_msg: AsyncValue<Option<T>>,
     function_cell: SingleUseCell<F>,
 }
 
@@ -25,7 +25,7 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     pub fn new(func: F) -> Self {
-        let async_msg = Arc::new(AsyncValue::new());
+        let async_msg = AsyncValue::new();
         let function_cell = SingleUseCell::new(func);
 
         Self {
@@ -40,14 +40,14 @@ where
     T: Send + Sync + Clone + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    fn notify_when_done(&self, notifiable: impl Notifiable<Message = Option<T>>) {
+    fn notify_when_done(&self, notifiable: impl Mailbox<'static, Message = Option<T>> + 'static) {
         if let Some(f) = self.function_cell.take() {
             let async_msg_clone = self.async_msg.clone();
             thread::spawn(move || {
                 async_msg_clone.send(Some(f()));
             });
         }
-        self.async_msg.send(notifiable);
+        self.async_msg.notify_when_done(notifiable);
     }
 
     fn request_cancellation(&self) -> () {

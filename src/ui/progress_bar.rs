@@ -5,8 +5,8 @@ use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::parasect::worker::WorkerMessage;
 use crate::range::numeric_range::NumericRange;
 use crate::range::numeric_range_set::NumericRangeSet;
-use crate::threading::background_loop::BackgroundLoop;
-use crate::threading::background_loop::BackgroundLoopBehavior::DontCancel;
+use crate::threading::actor::Actor;
+use crate::threading::actor::ActorBehavior::ContinueProcessing;
 use crate::ui::line::Line;
 use crate::ui::segment::{Attributes, Color, Segment};
 use crate::ui::ui_component::UiComponent;
@@ -21,7 +21,7 @@ use std::sync::{Arc, RwLock};
 /// * With 2 `max_height`, also reduces the color bar to 1 height.
 /// * With 1 `max_height`, only displays the bounds bar numbers.
 pub struct ProgressBar {
-    _receiver_listener: BackgroundLoop,
+    _receiver_listener: Actor,
     good_ranges: Arc<RwLock<NumericRangeSet>>,
     bad_ranges: Arc<RwLock<NumericRangeSet>>,
     valid_ranges: Arc<RwLock<NumericRangeSet>>,
@@ -47,7 +47,7 @@ impl ProgressBar {
             bad_ranges,
             active,
             valid_ranges,
-            _receiver_listener: BackgroundLoop::spawn(event_receiver, move |event| {
+            _receiver_listener: Actor::spawn(event_receiver, move |event| {
                 match event {
                     RangeInvalidated(r, Good) => {
                         valid_ranges_clone.write().unwrap().remove(&r);
@@ -75,7 +75,7 @@ impl ProgressBar {
                         .remove(&NumericRange::from_point(point)),
                     _ => {}
                 }
-                DontCancel
+                ContinueProcessing
             }),
         }
     }
