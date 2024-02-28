@@ -32,6 +32,7 @@ pub(crate) use assert_result_eq;
 use crossbeam_channel::bounded;
 use std::fmt::Debug;
 use std::thread;
+use std::time::Duration;
 
 fn assert_notify_same<T, C>(task: C)
 where
@@ -235,7 +236,7 @@ pub fn assert_higher_order_wait_after<A, B, C>(
 {
     let v = thread::scope(|scope| {
         let handle = scope.spawn(|| task.wait());
-        inner.wait_for_join();
+        inner.block_for_wait(Duration::from_secs(3), ".wait() never returned");
         inner.send(value);
 
         handle.join().unwrap()
@@ -284,7 +285,7 @@ where
 {
     thread::scope(|scope| {
         let handle = scope.spawn(|| task.wait());
-        inner.wait_for_join();
+        inner.block_for_wait(Duration::from_secs(3), ".wait() was never called");
         inner.request_cancellation();
 
         handle.join().unwrap();

@@ -1,6 +1,6 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
 use crate::threading::async_value::AsyncValue;
-use crate::threading::mailbox::Mailbox;
 use crate::threading::single_use_cell::SingleUseCell;
 use crossbeam_channel::Sender;
 use std::sync::Arc;
@@ -82,7 +82,7 @@ mod tests {
     proptest! {
         #[test]
         fn test_thread_safe(i in 1..10000) {
-            assert_cancellabletask_thread_safe(|| FunctionCancellableTask::new(|| i));
+            assert_cancellabletask_thread_safe(|| FunctionCancellableTask::new(move || i));
         }
     }
 }

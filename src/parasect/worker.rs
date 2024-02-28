@@ -1,10 +1,10 @@
+use crate::messaging::listener::Listener;
+use crate::messaging::listener::ListenerBehavior::{ContinueProcessing, StopProcessing};
 use crate::parasect::types::ParasectPayloadResult;
 use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::actor::ActorBehavior::{ContinueProcessing, StopProcessing};
-use crate::threading::actor::ScopedBackgroundLoop;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use ibig::IBig;
 use std::sync::Arc;
@@ -68,14 +68,11 @@ where
         midpoint: IBig,
         left: NumericRange,
         right: NumericRange,
-        result: Option<&ParasectPayloadResult>,
+        result: Option<ParasectPayloadResult>,
     ) -> WorkerMessage {
         let msg_type = match result {
-            None => {
-                println!("making cancelled msg");
-                Cancelled
-            }
-            Some(a) => Completed(a.clone()),
+            None => Cancelled,
+            Some(a) => Completed(a),
         };
 
         WorkerMessage {
@@ -103,9 +100,8 @@ where
 
             let v = thread::scope(|scope| {
                 let cancel_receiver_loop =
-                    ScopedBackgroundLoop::spawn(scope, self.cancel_receiver.clone(), |range| {
+                    Listener::spawn_scoped(scope, self.cancel_receiver.clone(), |range| {
                         if range.contains(midpoint.clone()) {
-                            println!("{:?} thread {:?} cancelling task", Instant::now(), self.id);
                             task.request_cancellation();
                             StopProcessing
                         } else {
@@ -113,14 +109,8 @@ where
                         }
                     });
 
-                let ret = task.join();
-                println!(
-                    "{:?} thread {:?} joined: {:?}",
-                    Instant::now(),
-                    self.id,
-                    ret
-                );
-                cancel_receiver_loop.cancel();
+                let ret = task.wait();
+                cancel_receiver_loop.stop();
 
                 ret
             });
@@ -139,8 +129,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task::cancellable_message::CancellableMessage;
     use crate::test_util::test_util::test_util::r;
+    use crate::threading::async_value::AsyncValue;
     use crossbeam_channel::unbounded;
 
     #[test]
@@ -150,7 +140,7 @@ mod tests {
         let range_queue = Arc::new(BisectingRangeQueue::new(r(0, 10)));
         let rq_clone = range_queue.clone();
 
-        let worker = Worker::new(0, range_queue, send, |_range| CancellableMessage::new());
+        let worker = Worker::new(0, range_queue, send, |_range| AsyncValue::new());
 
         thread::scope(|scope| {
             rq_clone.invalidate(&r(0, 4));

@@ -1,33 +1,35 @@
-use crate::threading::actor::Actor;
-use crate::threading::actor::ActorBehavior::StopProcessing;
-use crate::threading::mailbox::Mailbox;
-use crate::threading::once_mailbox::OnceMailbox;
+use crate::messaging::listener::ListenerBehavior;
+use crate::messaging::mailbox::Mailbox;
+use crate::messaging::once_listener::OnceListener;
 use crate::threading::single_use_cell::SingleUseCell;
+use crossbeam_channel::{unbounded, Sender};
 use std::thread::Scope;
 
-/// Waits for a message, then runs a function in response to it.
-///
-/// All subsequent messages are ignored.
 pub struct OnceActor<'a, T>
 where
     T: Send + 'a,
 {
-    mailbox: OnceMailbox<'a, T>,
-    inner: Actor<'a, T>,
+    listener: OnceListener<'a, T>,
+    mailbox: Sender<T>,
+}
+
+fn closure<'a, T: Send + 'a>(payload: impl FnOnce(T) + Send + 'a) -> impl Fn(T) + Send + 'a {
+    let payload_cell = SingleUseCell::new(payload);
+    move |msg| {
+        payload_cell.take().unwrap()(msg);
+    }
 }
 
 impl<T> OnceActor<'static, T>
 where
     T: Send + 'static,
 {
-    pub fn spawn(handler: impl FnOnce(T) -> () + Send + 'static) -> Self {
-        let handler_cell = SingleUseCell::new(handler);
-        let inner = Actor::spawn(move |msg| {
-            handler_cell.take().unwrap()(msg);
-            StopProcessing
-        });
-        let mailbox = OnceMailbox::wrap(inner.mailbox());
-        Self { mailbox, inner }
+    pub fn spawn(payload: impl FnOnce(T) + Send + 'static) -> Self {
+        let (send, recv) = unbounded();
+        Self {
+            listener: OnceListener::spawn(recv, closure(payload)),
+            mailbox: send,
+        }
     }
 }
 
@@ -37,30 +39,20 @@ where
 {
     pub fn spawn_scoped<'env: 'a>(
         scope: &'a Scope<'a, 'env>,
-        handler: impl FnOnce(T) -> () + Send + 'a,
+        payload: impl Fn(T) + Send + 'a,
     ) -> Self {
-        let handler_cell = SingleUseCell::new(handler);
-        let inner = Actor::spawn_scoped(scope, move |msg| {
-            handler_cell.take().unwrap()(msg);
-            StopProcessing
-        });
-        let mailbox = OnceMailbox::wrap(inner.mailbox());
-        Self { mailbox, inner }
+        let (send, recv) = unbounded();
+        Self {
+            listener: OnceListener::spawn_scoped(scope, recv, closure(payload)),
+            mailbox: send,
+        }
     }
 
-    pub fn mailbox(&self) -> impl Mailbox<'a, Message = T> + 'a {
+    pub fn mailbox(&self) -> impl Mailbox<'a, Message = T> {
         self.mailbox.clone()
     }
 
-    pub fn assassinate(&self) {
-        self.inner.assassinate();
-    }
-}
-
-impl<'a, T: Send + 'a> Mailbox<'a> for OnceActor<'a, T> {
-    type Message = T;
-
-    fn give_message(&self, msg: Self::Message) -> bool {
-        self.mailbox().give_message(msg)
+    pub fn stop(&self) {
+        self.listener.stop()
     }
 }

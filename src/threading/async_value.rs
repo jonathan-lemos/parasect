@@ -1,5 +1,5 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::{bounded, Sender};
 use std::fmt::{Debug, Formatter, Write};
 use std::ops::{Deref, DerefMut};
@@ -81,7 +81,7 @@ where
     /// If the `AsyncValue` is already initialized, immediately sends the value.
     pub fn notify(&self, notifiable: impl Mailbox<'static, Message = T> + 'static) {
         if let Some(v) = self.get_value_if_exists() {
-            notifiable.give_message(v);
+            notifiable.send_msg(v);
             return;
         }
 
@@ -89,7 +89,7 @@ where
 
         match write.deref_mut() {
             Inner::Value(v) => {
-                notifiable.give_message(v.clone());
+                notifiable.send_msg(v.clone());
             }
             Inner::Waiters(ws) => ws.push(Box::new(notifiable)),
         };
@@ -112,7 +112,7 @@ where
             };
 
             while let Some(w) = ws.pop() {
-                w.give_message(value.clone());
+                w.send_msg(value.clone());
             }
         }
 
@@ -163,7 +163,7 @@ impl<T: Send + Sync + Clone + 'static> CancellableTask<T> for AsyncValue<Option<
 impl<T: Send + Sync + Clone + 'static> Mailbox<'static> for AsyncValue<T> {
     type Message = T;
 
-    fn give_message(&self, msg: Self::Message) -> bool {
+    fn send_msg(&self, msg: Self::Message) -> bool {
         self.send(msg)
     }
 }

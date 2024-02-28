@@ -1,16 +1,20 @@
-use crate::threading::mailbox::Mailbox;
+use crate::messaging::mailbox::Mailbox;
 use crossbeam_channel::{bounded, Receiver, Sender};
-use std::sync::{Arc, RwLock};
+use std::marker::PhantomData;
+use std::sync::{Arc, Mutex, RwLock};
 
 /// A `Mailbox` that can only take a single value.
-pub struct OnceMailbox<'a, T>
+pub struct OnceMailbox<'a, T, M>
 where
     T: Send + 'a,
+    M: Mailbox<'a, Message = T> + 'a,
 {
-    send: Arc<RwLock<(Box<dyn Mailbox<'a, Message = T> + 'a>, bool)>>,
+    _a: PhantomData<&'a ()>,
+    _t: PhantomData<Mutex<T>>,
+    send: Arc<RwLock<(M, bool)>>,
 }
 
-impl<'a, T> OnceMailbox<'a, T>
+impl<'a, T> OnceMailbox<'a, T, Sender<T>>
 where
     T: Send + 'a,
 {
@@ -18,29 +22,40 @@ where
         let (send, recv) = bounded(1);
         (
             Self {
-                send: Arc::new(RwLock::new((Box::new(send), false))),
+                _t: PhantomData,
+                _a: PhantomData,
+                send: Arc::new(RwLock::new((send, false))),
             },
             recv,
         )
     }
+}
 
-    pub fn wrap(inner: impl Mailbox<'a, Message = T> + 'a) -> Self {
+impl<'a, T, M> OnceMailbox<'a, T, M>
+where
+    T: Send + 'a,
+    M: Mailbox<'a, Message = T> + 'a,
+{
+    pub fn wrap(inner: M) -> Self {
         Self {
-            send: Arc::new(RwLock::new((Box::new(inner), false))),
+            _t: PhantomData,
+            _a: PhantomData,
+            send: Arc::new(RwLock::new((inner, false))),
         }
     }
 }
 
-impl<'a, T> Mailbox<'a> for OnceMailbox<'a, T>
+impl<'a, T, M> Mailbox<'a> for OnceMailbox<'a, T, M>
 where
-    T: Send + 'a,
+    T: Send + Sync + 'a,
+    M: Mailbox<'a, Message = T> + Sync,
 {
     type Message = T;
 
     /// Sends a value, if a value was not already sent.
     ///
     /// Returns true if and only if the message was successfully sent.
-    fn give_message(&self, value: T) -> bool {
+    fn send_msg(&self, value: T) -> bool {
         {
             let read = self.send.read().unwrap();
             if read.1 {
@@ -49,18 +64,21 @@ where
         }
 
         let mut write = self.send.write().unwrap();
-        write.0.give_message(value);
+        write.0.send_msg(value);
         write.1 = true;
         return true;
     }
 }
 
-impl<'a, T> Clone for OnceMailbox<'a, T>
+impl<'a, T, M> Clone for OnceMailbox<'a, T, M>
 where
     T: Send + 'a,
+    M: Mailbox<'a, Message = T>,
 {
     fn clone(&self) -> Self {
         Self {
+            _t: PhantomData,
+            _a: PhantomData,
             send: self.send.clone(),
         }
     }
@@ -74,8 +92,8 @@ mod tests {
     fn test_once_sender() {
         let (send, recv) = OnceMailbox::new();
 
-        assert_eq!(send.give_message(69), true);
-        assert_eq!(send.give_message(70), false);
+        assert_eq!(send.send_msg(69), true);
+        assert_eq!(send.send_msg(70), false);
 
         assert_eq!(recv.try_recv(), Ok(69));
         assert!(recv.try_recv().is_err());

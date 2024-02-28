@@ -1,6 +1,6 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::ignore_cancel_cancellable_task::IgnoreCancelCancellableTask;
 use crate::task::map_cancellable_task::MapValueCancellableTask;
-use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::bounded;
 
 /// An asynchronous task that can be cancelled.

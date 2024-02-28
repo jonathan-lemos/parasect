@@ -1,4 +1,7 @@
 use crate::collections::collect_collection::CollectVec;
+use crate::messaging::listener::ListenerBehavior::{ContinueProcessing, StopProcessing};
+use crate::messaging::listener::{Listener, ListenerBehavior};
+use crate::messaging::mailbox::Mailbox;
 use crate::parasect::event::Event;
 use crate::parasect::event::Event::{ParasectCancelled, RangeInvalidated, WorkerMessageSent};
 use crate::parasect::types::ParasectError::{InconsistencyError, PayloadError};
@@ -10,10 +13,7 @@ use crate::parasect::worker::{Worker, WorkerMessage};
 use crate::range::bisecting_range_queue::BisectingRangeQueue;
 use crate::range::numeric_range::NumericRange;
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::actor::ActorBehavior::{ContinueProcessing, StopProcessing};
-use crate::threading::actor::{Actor, ActorBehavior};
 use crate::threading::async_value::AsyncValue;
-use crate::threading::mailbox::Mailbox;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use dashmap::DashMap;
 use ibig::IBig;
@@ -78,7 +78,7 @@ where
     latest_good: RwLock<IBig>,
     earliest_bad: RwLock<IBig>,
     results: DashMap<IBig, ParasectPayloadResult>,
-    failure_message: AsyncValue<String>,
+    failure_message: AsyncValue<Option<String>>,
 }
 
 impl<'a, TTask, FPayload> ParasectController<'a, TTask, FPayload>
@@ -129,7 +129,7 @@ where
         let good_read = self.latest_good.read().unwrap();
         let bad_read = self.earliest_bad.read().unwrap();
         if good_read.deref() > bad_read.deref() {
-            self.failure_message.give_message(format!("A good {} was detected after a bad {}. Parasect requires 1 or more good followed by remaining bad.", good_read.deref(), bad_read.deref()));
+            self.failure_message.send_msg(Some(format!("A good {} was detected after a bad {}. Parasect requires 1 or more good followed by remaining bad.", good_read.deref(), bad_read.deref())));
         }
     }
 
@@ -151,7 +151,7 @@ where
         self.check_good_does_not_exceed_bad();
     }
 
-    fn handle_message(&self, message: WorkerMessage) -> ActorBehavior {
+    fn handle_message(&self, message: WorkerMessage) -> ListenerBehavior {
         if let Some(sender) = &self.settings.event_sender {
             sender
                 .send(WorkerMessageSent(message.clone()))
@@ -170,7 +170,7 @@ where
                         self.invalidate_range(&message.right.map_first(|x| x - 1), Bad);
                     }
                     Stop(reason) => {
-                        self.failure_message.send(reason.clone());
+                        self.failure_message.send(Some(reason.clone()));
                         self.results.insert(message.point, result);
                         return StopProcessing;
                     }
@@ -187,12 +187,15 @@ where
         let self_ref = &self;
 
         thread::scope(|scope| {
-            let message_loop = Actor::spawn_scoped(scope, |msg| self_ref.handle_message(msg));
+            let message_loop =
+                Listener::spawn_scoped(scope, self.message_receiver.clone(), |msg| {
+                    self_ref.handle_message(msg)
+                });
 
             scope.spawn(move || {
-                let result = self_ref.failure_message.join();
+                let result = self_ref.failure_message.wait();
 
-                message_loop.cancel();
+                message_loop.stop();
 
                 result.inspect(|reason| {
                     self_ref.queue.invalidate(&self_ref.settings.range.clone());
@@ -214,7 +217,7 @@ where
                 t.join().unwrap();
             }
 
-            self_ref.failure_message.cancel();
+            self_ref.failure_message.send(None);
         });
 
         while let Ok(msg) = self.message_receiver.try_recv() {

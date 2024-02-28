@@ -1,9 +1,7 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
 use crate::threading::async_value::AsyncValue;
-use crate::threading::mailbox::Mailbox;
 use crate::threading::once_actor::OnceActor;
-use crate::threading::single_use_cell::SingleUseCell;
-use std::sync::Arc;
 
 /// A CancellableTask that maps another CancellableTask using a function.
 pub struct MapValueCancellableTask<TOld, TNew, InnerTask>
@@ -57,7 +55,7 @@ where
     fn request_cancellation(&self) -> () {
         self.mapped_value.send(None);
         self.inner_task.request_cancellation();
-        self.inner_task_reactor.assassinate();
+        self.inner_task_reactor.stop();
     }
 }
 

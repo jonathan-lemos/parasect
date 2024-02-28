@@ -1,11 +1,11 @@
+use crate::messaging::listener::Listener;
+use crate::messaging::listener::ListenerBehavior::ContinueProcessing;
 use crate::parasect::event::Event;
 use crate::parasect::event::Event::*;
 use crate::parasect::types::ParasectPayloadAnswer::*;
 use crate::parasect::types::ParasectPayloadResult::*;
 use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::range::numeric_range::NumericRange;
-use crate::threading::actor::Actor;
-use crate::threading::actor::ActorBehavior::ContinueProcessing;
 use crossbeam_channel::Receiver;
 
 /// Instantiation of this struct outputs a stream of logs to stdout.
@@ -14,7 +14,7 @@ use crossbeam_channel::Receiver;
 ///
 /// The logs stops outputting when this struct is dropped.
 pub struct NoTtyUi {
-    _receiver_loop: Actor,
+    _receiver_loop: Listener<'static, Event>,
 }
 
 impl NoTtyUi {
@@ -60,9 +60,8 @@ impl NoTtyUi {
         println!("Parasecting over range {}", initial_range);
         println!("Command: {}", command_string);
         Self {
-            _receiver_loop: Actor::spawn(event_receiver, |event| {
+            _receiver_loop: Listener::spawn(event_receiver, |event| {
                 println!("{}", Self::make_log_message(&event));
-                ContinueProcessing
             }),
         }
     }

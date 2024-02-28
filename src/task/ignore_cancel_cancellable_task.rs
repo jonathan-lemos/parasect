@@ -1,5 +1,5 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
-use crate::threading::mailbox::Mailbox;
 use std::marker::PhantomData;
 use std::ops::Deref;
 

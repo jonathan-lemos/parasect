@@ -1,6 +1,8 @@
-use crate::task::cancellable_message::CancellableMessage;
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_subprocess::SubprocessError::*;
 use crate::task::cancellable_task::CancellableTask;
+use crate::threading::async_value::AsyncValue;
+use crate::util::functional::compose_once;
 use shared_child::SharedChild;
 use std::fmt::{Display, Formatter};
 use std::io::Read;
@@ -15,11 +17,11 @@ pub struct SubprocessOutput {
     pub output: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(unused)]
 pub enum SubprocessError {
-    ProcessSpawnError(io::Error),
-    ProcessWaitError(io::Error),
+    ProcessSpawnError(Arc<io::Error>),
+    ProcessWaitError(Arc<io::Error>),
 }
 
 impl Display for SubprocessError {
@@ -41,11 +43,10 @@ impl Display for SubprocessError {
 /// Cancellation sends a SIGKILL
 pub struct CancellableSubprocess {
     child: Arc<SharedChild>,
-    msg: Arc<CancellableMessage<Result<SubprocessOutput, SubprocessError>>>,
+    msg: Arc<AsyncValue<Option<Result<SubprocessOutput, SubprocessError>>>>,
     thread: JoinHandle<()>,
 }
 
-#[allow(unused)]
 impl CancellableSubprocess {
     pub fn new(args: &[&str]) -> Result<CancellableSubprocess, SubprocessError> {
         let child = SharedChild::spawn(
@@ -54,10 +55,10 @@ impl CancellableSubprocess {
                 .stdout(Stdio::piped())
                 .stderr(io::stdout()),
         )
-        .map_err(ProcessSpawnError)?;
+        .map_err(compose_once(ProcessSpawnError, Arc::new))?;
 
         let child = Arc::new(child);
-        let msg = Arc::new(CancellableMessage::new());
+        let msg = Arc::new(AsyncValue::new());
 
         let thread = {
             let child_clone = child.clone();
@@ -65,7 +66,7 @@ impl CancellableSubprocess {
             thread::spawn(move || {
                 let mut output = String::new();
 
-                let output_option = if let Err(e) = child_clone
+                let output_option = if let Err(_) = child_clone
                     .take_stdout()
                     .unwrap()
                     .read_to_string(&mut output)
@@ -77,17 +78,17 @@ impl CancellableSubprocess {
 
                 let status = match child_clone.wait() {
                     Err(e) => {
-                        msg_clone.send(Err(ProcessWaitError(e)));
+                        msg_clone.send(Some(Err(ProcessWaitError(Arc::new(e)))));
                         let _ = child_clone.kill();
                         return;
                     }
                     Ok(v) => v,
                 };
 
-                msg_clone.send(Ok(SubprocessOutput {
+                msg_clone.send(Some(Ok(SubprocessOutput {
                     output: output_option,
                     status,
-                }));
+                })));
             })
         };
 
@@ -98,22 +99,17 @@ impl CancellableSubprocess {
 }
 
 impl CancellableTask<Result<SubprocessOutput, SubprocessError>> for CancellableSubprocess {
-    fn join(&self) -> Option<&Result<SubprocessOutput, SubprocessError>> {
-        self.msg.recv()
-    }
-
-    fn join_into(self) -> Option<Result<SubprocessOutput, SubprocessError>> {
-        self.thread.join().unwrap();
-        Arc::into_inner(self.msg).unwrap().recv_into()
+    fn notify_when_done(
+        &self,
+        mailbox: impl Mailbox<'static, Message = Option<Result<SubprocessOutput, SubprocessError>>>
+            + 'static,
+    ) {
+        self.msg.notify_when_done(mailbox);
     }
 
     fn request_cancellation(&self) -> () {
-        self.msg.cancel();
-        if let Err(e) = self.child.kill() {
-            println!("failed to kill child: {:?}", e);
-        } else {
-            println!("killed child");
-        }
+        self.msg.send_msg(None);
+        let _ = self.child.kill();
     }
 }
 
@@ -127,7 +123,7 @@ mod tests {
     fn test_echo() {
         let sp = CancellableSubprocess::new(&["echo", "foo"]).unwrap();
 
-        let result_arc = sp.join().unwrap();
+        let result_arc = sp.wait().unwrap();
         let output = match result_arc.as_ref() {
             Ok(thing) => thing,
             Err(e) => panic!("{:?}", e),
@@ -143,7 +139,7 @@ mod tests {
         let sp = CancellableSubprocess::new(&["sleep", "5"]).unwrap();
 
         let result_option = thread::scope(|scope| {
-            let t = scope.spawn(|| sp.join());
+            let t = scope.spawn(|| sp.wait());
             sp.request_cancellation();
             t.join().unwrap()
         });

@@ -23,6 +23,7 @@ use std::process::ExitCode;
 mod cli;
 mod collections;
 mod command_gen;
+mod messaging;
 mod parasect;
 mod range;
 mod task;

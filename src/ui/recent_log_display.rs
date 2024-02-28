@@ -1,4 +1,5 @@
 use crate::collections::collect_collection::CollectVec;
+use crate::messaging::listener::Listener;
 use crate::parasect::event::Event;
 use crate::parasect::event::Event::*;
 use crate::parasect::types::ParasectPayloadAnswer::*;
@@ -6,8 +7,6 @@ use crate::parasect::types::ParasectPayloadResult::*;
 use crate::parasect::types::{ParasectPayloadAnswer, ParasectPayloadResult};
 use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::parasect::worker::WorkerMessage;
-use crate::threading::actor::Actor;
-use crate::threading::actor::ActorBehavior::ContinueProcessing;
 use crate::ui::line::mkline;
 use crate::ui::line::Line;
 use crate::ui::recent_log_display::LogType::*;
@@ -31,7 +30,7 @@ enum LogType {
 /// Produces `max(max_height, logs.len())` lines when rendered.
 pub struct RecentLogDisplay {
     lru_logs: Arc<RwLock<LruCache<LogType, Event>>>,
-    _event_listener: Actor,
+    _event_listener: Listener<'static, Event>,
 }
 
 impl RecentLogDisplay {
@@ -186,7 +185,7 @@ impl RecentLogDisplay {
 
         Self {
             lru_logs,
-            _event_listener: Actor::spawn(event_receiver, move |event| {
+            _event_listener: Listener::spawn(event_receiver, move |event| {
                 let mut lru_write = lru_logs_clone.write().unwrap();
 
                 let key = Self::event_log_type(&event);
@@ -194,8 +193,6 @@ impl RecentLogDisplay {
                 if lru_write.get(&key) != Some(&event) {
                     lru_write.put(Self::event_log_type(&event), event);
                 }
-
-                ContinueProcessing
             }),
         }
     }

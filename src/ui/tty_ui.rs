@@ -1,7 +1,7 @@
 use crate::collections::collect_collection::CollectVec;
+use crate::messaging::fan::Fan;
 use crate::parasect::event::Event;
 use crate::range::numeric_range::NumericRange;
-use crate::threading::fan::Fan;
 use crate::ui::line::Line;
 use crate::ui::progress_bar::ProgressBar;
 use crate::ui::recent_log_display::RecentLogDisplay;
@@ -21,7 +21,7 @@ use std::time::Duration;
 /// The TUI stops rendering when this struct is dropped.
 pub struct TtyUi {
     cancel: Arc<AtomicBool>,
-    _fan: Fan<Event>,
+    _fan: Fan<'static, Event>,
 }
 
 impl TtyUi {
@@ -58,8 +58,8 @@ impl TtyUi {
         let fan = Fan::new(event_receiver);
         let cancel = Arc::new(AtomicBool::new(false));
 
-        let progress_bar = ProgressBar::new(fan.subscribe().clone(), initial_range);
-        let recent_log_display = RecentLogDisplay::new(fan.subscribe().clone());
+        let progress_bar = ProgressBar::new(fan.subscribe(), initial_range);
+        let recent_log_display = RecentLogDisplay::new(fan.subscribe());
         let cancel_clone = cancel.clone();
 
         thread::spawn(move || {

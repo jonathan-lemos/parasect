@@ -1,7 +1,7 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
 use crate::task::map_cancellable_task::MapValueCancellableTask;
 use crate::threading::async_value::AsyncValue;
-use crate::threading::mailbox::Mailbox;
 use crate::threading::single_use_cell::SingleUseCell;
 use std::sync::Arc;
 
@@ -54,7 +54,7 @@ where
     }
 
     fn request_cancellation(&self) -> () {
-        self.value.give_message(None);
+        self.value.send_msg(None);
         if let Some(s) = &self.inner_task {
             s.request_cancellation();
         }

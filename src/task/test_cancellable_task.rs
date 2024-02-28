@@ -1,7 +1,7 @@
+use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
 use crate::test_util::test_util::test_util::wait_for_condition;
 use crate::threading::async_value::AsyncValue;
-use crate::threading::mailbox::Mailbox;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -18,7 +18,8 @@ where
     msg: AsyncValue<Option<T>>,
     sent_values: Arc<Mutex<Vec<T>>>,
     cancel_called_times: Arc<AtomicUsize>,
-    join_called_times: Arc<AtomicUsize>,
+    notify_called_times: Arc<AtomicUsize>,
+    wait_called_times: Arc<AtomicUsize>,
 }
 
 impl<T> TestCancellableTask<T>
@@ -29,8 +30,9 @@ where
         Self {
             msg: AsyncValue::new(),
             sent_values: Arc::new(Mutex::new(Vec::new())),
+            notify_called_times: Arc::new(AtomicUsize::new(0)),
             cancel_called_times: Arc::new(AtomicUsize::new(0)),
-            join_called_times: Arc::new(AtomicUsize::new(0)),
+            wait_called_times: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -39,15 +41,23 @@ where
         self.msg.send(Some(value));
     }
 
-    pub fn wait_for_join(&self, timeout: Duration, msg: impl ToString) {
+    pub fn block_for_notify(&self, timeout: Duration, msg: impl ToString) {
         wait_for_condition(
-            || self.join_called_times.load(Ordering::Relaxed) > 0,
+            || self.notify_called_times.load(Ordering::Relaxed) > 0,
             timeout,
             msg,
         );
     }
 
-    pub fn wait_for_cancel(&self, timeout: Duration, msg: impl ToString) {
+    pub fn block_for_wait(&self, timeout: Duration, msg: impl ToString) {
+        wait_for_condition(
+            || self.wait_called_times.load(Ordering::Relaxed) > 0,
+            timeout,
+            msg,
+        );
+    }
+
+    pub fn block_for_cancel(&self, timeout: Duration, msg: impl ToString) {
         wait_for_condition(
             || self.cancel_called_times.load(Ordering::Relaxed) > 0,
             timeout,
@@ -61,11 +71,17 @@ where
     T: Send + Sync + Clone,
 {
     fn notify_when_done(&self, mailbox: impl Mailbox<'static, Message = Option<T>> + 'static) {
+        self.notify_called_times.fetch_add(1, Ordering::Relaxed);
         self.msg.notify(mailbox);
+    }
+
+    fn wait(&self) -> Option<T> {
+        self.wait_called_times.fetch_add(1, Ordering::Relaxed);
+        self.msg.wait()
     }
 
     fn request_cancellation(&self) -> () {
         self.cancel_called_times.fetch_add(1, Ordering::Relaxed);
-        self.msg.give_message(None);
+        self.msg.send_msg(None);
     }
 }
