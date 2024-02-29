@@ -8,8 +8,8 @@ use std::time::Duration;
 
 /// A CancellableTask only for testing.
 ///
-/// Implements Clone, so you can `send()`/`join()` from another thread even when the SUT needs to "own" the CancellableTask.
-/// Will block indefinitely until `send()` is called.
+/// Implements `Clone`, so you can `send()`/`notify()` from another thread even when the SUT needs to "own" the CancellableTask.
+/// Will block indefinitely until `send()`/`notify()` is called.
 #[derive(Clone)]
 pub struct TestCancellableTask<T>
 where

@@ -1,5 +1,4 @@
 use crate::messaging::listener::Listener;
-use crate::messaging::listener::ListenerBehavior::ContinueProcessing;
 use crate::parasect::event::Event;
 use crate::parasect::event::Event::*;
 use crate::parasect::types::ParasectPayloadAnswer::*;

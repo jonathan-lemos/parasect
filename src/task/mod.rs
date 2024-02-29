@@ -9,4 +9,4 @@ pub mod result_cancellable_task;
 #[cfg(test)]
 pub mod test_cancellable_task;
 #[cfg(test)]
-mod test_util;
+pub mod test_util;

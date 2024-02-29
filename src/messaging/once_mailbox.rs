@@ -36,6 +36,9 @@ where
     T: Send + 'a,
     M: Mailbox<'a, Message = T> + 'a,
 {
+    /// Wraps the given `Mailbox` in a `OnceMailbox` s.t. it can only take one message.
+    ///
+    /// If the `Mailbox` has been cloned, this function does not prevent the original `Mailbox` from receiving messages through its clones.
     pub fn wrap(inner: M) -> Self {
         Self {
             _t: PhantomData,
@@ -87,15 +90,28 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossbeam_channel::unbounded;
 
     #[test]
-    fn test_once_sender() {
+    fn test_once_mailbox_new() {
         let (send, recv) = OnceMailbox::new();
 
-        assert_eq!(send.send_msg(69), true);
-        assert_eq!(send.send_msg(70), false);
+        assert!(send.send_msg(69));
+        assert!(!send.send_msg(70));
 
         assert_eq!(recv.try_recv(), Ok(69));
         assert!(recv.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_once_mailbox_wrap() {
+        let (s, r) = unbounded();
+        let mailbox = OnceMailbox::wrap(s);
+
+        assert!(mailbox.send_msg(69));
+        assert!(!mailbox.send_msg(70));
+
+        assert_eq!(r.try_recv(), Ok(69));
+        assert!(r.try_recv().is_err());
     }
 }

@@ -9,7 +9,6 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use ibig::IBig;
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Hash)]
 pub enum PointCompletionMessageType {

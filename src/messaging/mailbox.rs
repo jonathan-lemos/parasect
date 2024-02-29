@@ -15,3 +15,19 @@ impl<'a, T: Send + 'a> Mailbox<'a> for crossbeam_channel::Sender<T> {
         self.try_send(msg).is_ok()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::messaging::mailbox::Mailbox;
+    use crossbeam_channel::bounded;
+
+    #[test]
+    fn test_sender_mailbox() {
+        let (s, r) = bounded(1);
+
+        assert!(s.send_msg(1));
+        assert!(!s.send_msg(2));
+
+        assert_eq!(r.recv().unwrap(), 1);
+    }
+}

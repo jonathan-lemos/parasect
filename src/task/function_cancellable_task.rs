@@ -2,8 +2,6 @@ use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
 use crate::threading::async_value::AsyncValue;
 use crate::threading::single_use_cell::SingleUseCell;
-use crossbeam_channel::Sender;
-use std::sync::Arc;
 use std::thread;
 
 /// A CancellableTask that yields a value from the given function.

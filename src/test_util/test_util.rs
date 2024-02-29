@@ -1,9 +1,7 @@
 #[cfg(test)]
 pub mod test_util {
     use crate::range::numeric_range::NumericRange;
-    use crossbeam_channel::{bounded, select};
     use ibig::{IBig, UBig};
-    use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
 

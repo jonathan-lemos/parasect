@@ -199,15 +199,12 @@ pub fn assert_higher_order_notify_after<A, B, C>(
     B: Eq + Debug + Send + Sync + Clone + 'static,
     C: CancellableTask<B>,
 {
-    let v = thread::scope(|scope| {
-        let (s, r) = bounded(1);
-        task.notify_when_done(s);
+    let (s, r) = bounded(1);
+    task.notify_when_done(s);
 
-        inner.send(value);
-        r.recv().unwrap()
-    });
+    inner.send(value);
 
-    assert_eq!(v, Some(expected_eq));
+    assert_eq!(r.recv().unwrap(), Some(expected_eq));
 }
 
 pub fn assert_higher_order_wait_before<A, B, C>(

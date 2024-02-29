@@ -89,7 +89,7 @@ impl TtyUi {
     }
 
     pub fn cancel(&self) {
-        println!("{}", termion::cursor::Restore);
+        print!("{}", termion::cursor::Restore);
         self.cancel.store(false, Ordering::Relaxed);
     }
 }

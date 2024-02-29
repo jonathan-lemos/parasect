@@ -1,7 +1,7 @@
 use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
-use crossbeam_channel::{bounded, Sender};
-use std::fmt::{Debug, Formatter, Write};
+use crossbeam_channel::bounded;
+use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, RwLock};
 
@@ -171,6 +171,9 @@ impl<T: Send + Sync + Clone + 'static> Mailbox<'static> for AsyncValue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task::test_util::{
+        assert_cancellabletask_invariants, assert_cancellabletask_thread_safe,
+    };
     use proptest::proptest;
     use std::thread;
 
@@ -197,6 +200,22 @@ mod tests {
         a.notify(s2);
 
         a.send(69);
+
+        assert_eq!(r1.recv().unwrap(), 69);
+        assert_eq!(r2.recv().unwrap(), 69);
+    }
+
+    #[test]
+    pub fn test_mailbox() {
+        let a = AsyncValue::new();
+
+        let (s1, r1) = bounded(1);
+        let (s2, r2) = bounded(1);
+
+        a.notify(s1);
+        a.notify(s2);
+
+        a.send_msg(69);
 
         assert_eq!(r1.recv().unwrap(), 69);
         assert_eq!(r2.recv().unwrap(), 69);
@@ -246,6 +265,30 @@ mod tests {
         assert_eq!(v2, 69);
     }
 
+    #[test]
+    pub fn test_clone() {
+        let a = AsyncValue::new();
+        let b = a.clone();
+
+        a.send(69);
+
+        assert_eq!(a.wait(), 69);
+        assert_eq!(b.wait(), 69);
+    }
+
+    #[test]
+    pub fn test_send_idempotent() {
+        let a = AsyncValue::new();
+
+        assert!(a.send(69));
+        assert!(!a.send(70));
+    }
+
+    #[test]
+    pub fn test_cancellabletask_invariants() {
+        assert_cancellabletask_invariants(|| AsyncValue::from(Some(69)));
+    }
+
     proptest! {
         #[test]
         fn notify_concurrent(i in 1..10000) {
@@ -271,6 +314,20 @@ mod tests {
         }
 
         #[test]
+        fn send_concurrent(i in 1..10000) {
+            let a = AsyncValue::new();
+
+            thread::scope(|scope| {
+                scope.spawn(|| a.send(69));
+                scope.spawn(|| a.send(69));
+                scope.spawn(|| a.send(69));
+                scope.spawn(|| a.send(69));
+            });
+
+            assert_eq!(a.wait(), 69);
+        }
+
+        #[test]
         fn wait_concurrent(i in 1..10000) {
             let a = AsyncValue::new();
 
@@ -285,6 +342,11 @@ mod tests {
             });
 
             assert!(vs.into_iter().all(|x| x == i));
+        }
+
+        #[test]
+        fn test_threadsafe(i in 1..10000) {
+            assert_cancellabletask_thread_safe(|| AsyncValue::from(Some(i)));
         }
     }
 }

@@ -1,6 +1,5 @@
 use crate::messaging::mailbox::Mailbox;
 use crate::task::cancellable_task::CancellableTask;
-use crossbeam_channel::Sender;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Wraps a value in the CancellableTask trait.

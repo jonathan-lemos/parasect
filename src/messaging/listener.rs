@@ -35,7 +35,7 @@ where
     cancel_sender: Sender<()>,
 }
 
-fn receiver_loop_closure<'a, B: Into<ListenerBehavior>, T: Send + 'a>(
+fn receiver_loop_closure<'a, B: Into<ListenerBehavior> + 'a, T: Send + 'a>(
     receiver: Receiver<T>,
     payload: impl Fn(T) -> B + Send + 'a,
 ) -> (impl Fn(), Sender<()>) {
@@ -114,8 +114,8 @@ where
     /// `true` if and only if the `Listener` is still processing messages.
     pub fn active(&self) -> bool {
         match &self.thread {
-            NotScoped(h) => h.is_finished(),
-            Scoped(h) => h.is_finished(),
+            NotScoped(h) => !h.is_finished(),
+            Scoped(h) => !h.is_finished(),
         }
     }
 }
@@ -138,14 +138,26 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    fn wait_for_listener_death<'a, T: Send + 'a>(listener: &Listener<'a, T>) {
+        wait_for_condition(
+            || !listener.active(),
+            Duration::from_secs(1),
+            "Listener never died.",
+        );
+    }
+
     #[test]
     fn test_listener() {
         let (s, r) = unbounded();
         let processed = Arc::new(Mutex::new(Vec::new()));
 
         let processed_clone = processed.clone();
+
         let listener = Listener::spawn(r, move |num| {
-            processed_clone.lock().unwrap().push(num);
+            {
+                let mut write = processed_clone.lock().unwrap();
+                write.push(num);
+            }
             if num == 5 {
                 StopProcessing
             } else {
@@ -157,19 +169,14 @@ mod tests {
             s.send_msg(i);
         }
 
-        wait_for_condition(
-            || !listener.active(),
-            Duration::from_secs(1),
-            "Listener never died.",
-        );
-
+        wait_for_listener_death(&listener);
         assert_eq!(processed.lock().unwrap().deref(), &(0..=5).collect_vec());
     }
 
     #[test]
     fn test_listener_cancel_terminates() {
         let (s, r) = unbounded();
-        let listener = Arc::new(Listener::spawn(r, |_| ContinueProcessing));
+        let listener = Arc::new(Listener::spawn(r, |_| {}));
 
         let listener_clone = listener.clone();
         thread::spawn(move || loop {
@@ -180,11 +187,7 @@ mod tests {
 
         assert!(listener.active());
         listener.stop();
-        wait_for_condition(
-            || !listener.active(),
-            Duration::from_secs(1),
-            "Listener never died.",
-        );
+        wait_for_listener_death(&listener);
     }
 
     #[test]
@@ -208,11 +211,7 @@ mod tests {
                 s.send_msg(i);
             }
 
-            wait_for_condition(
-                || !listener.active(),
-                Duration::from_secs(1),
-                "Listener never died.",
-            );
+            wait_for_listener_death(&listener);
         });
 
         assert_eq!(processed.lock().unwrap().deref(), &(0..=5).collect_vec());
@@ -223,7 +222,7 @@ mod tests {
         let (send, recv) = unbounded();
 
         thread::scope(|scope| {
-            let listener = Listener::spawn_scoped(scope, recv, |_| ContinueProcessing);
+            let listener = Listener::spawn_scoped(scope, recv, |_| {});
 
             scope.spawn(|| loop {
                 match send.send(()) {
@@ -234,11 +233,7 @@ mod tests {
 
             assert!(listener.active());
             listener.stop();
-            wait_for_condition(
-                || !listener.active(),
-                Duration::from_secs(1),
-                "listener never died.",
-            );
+            wait_for_listener_death(&listener);
         });
     }
 }

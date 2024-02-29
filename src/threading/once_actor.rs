@@ -1,4 +1,3 @@
-use crate::messaging::listener::ListenerBehavior;
 use crate::messaging::mailbox::Mailbox;
 use crate::messaging::once_listener::OnceListener;
 use crate::threading::single_use_cell::SingleUseCell;

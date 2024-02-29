@@ -20,7 +20,7 @@ impl TerminalScreen {
         );
         *instantiated_lock.deref_mut() = true;
 
-        println!(
+        print!(
             "{}{}{}",
             termion::clear::All,
             termion::cursor::Goto(1, 1),
@@ -32,7 +32,7 @@ impl TerminalScreen {
 
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
-        println!("{}", termion::cursor::Restore);
+        print!("{}", termion::cursor::Restore);
         let mut instantiated_lock = match INSTANTIATED.lock() {
             Ok(l) => l,
             // if the mutex is poisoned, there's no point in changing its value

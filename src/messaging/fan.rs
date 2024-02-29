@@ -12,7 +12,7 @@ where
     T: Send + Clone + 'a,
 {
     outputs: Arc<RwLock<Vec<Box<dyn Mailbox<'a, Message = T> + 'a>>>>,
-    message_spreader: Listener<'a, T>,
+    _message_spreader: Listener<'a, T>,
 }
 
 fn instantiation_closure<'a, T: Send + Clone + 'a>() -> (
@@ -43,7 +43,7 @@ where
 
         Self {
             outputs,
-            message_spreader,
+            _message_spreader: message_spreader,
         }
     }
 }
@@ -59,7 +59,7 @@ where
 
         Self {
             outputs,
-            message_spreader,
+            _message_spreader: message_spreader,
         }
     }
 
@@ -91,6 +91,24 @@ mod tests {
 
         f.notify(Box::new(s1));
         f.notify(Box::new(s2));
+
+        send.send_msg(1);
+        send.send_msg(2);
+
+        assert_eq!(r1.recv(), Ok(1));
+        assert_eq!(r1.recv(), Ok(2));
+
+        assert_eq!(r2.recv(), Ok(1));
+        assert_eq!(r2.recv(), Ok(2));
+    }
+
+    #[test]
+    fn test_subscribe() {
+        let (send, recv) = unbounded();
+        let f = Fan::new(recv);
+
+        let r1 = f.subscribe();
+        let r2 = f.subscribe();
 
         send.send_msg(1);
         send.send_msg(2);
