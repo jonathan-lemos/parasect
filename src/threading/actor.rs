@@ -16,7 +16,7 @@ where
     T: Send + 'static,
 {
     pub fn spawn<B: Into<ListenerBehavior> + 'static>(
-        payload: impl Fn(T) -> B + Send + 'static,
+        payload: impl FnMut(T) -> B + Send + 'static,
     ) -> Self {
         let (send, recv) = unbounded();
         Self {
@@ -32,7 +32,7 @@ where
 {
     pub fn spawn_scoped<'env: 'a, B: Into<ListenerBehavior> + 'a>(
         scope: &'a Scope<'a, 'env>,
-        payload: impl Fn(T) -> B + Send + 'a,
+        payload: impl FnMut(T) -> B + Send + 'a,
     ) -> Self {
         let (send, recv) = unbounded();
         Self {

@@ -1,6 +1,7 @@
 use crate::collections::collect_collection::CollectVec;
 use crate::ui::segment::Segment;
 use crate::ui::ui_component::UiComponent;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// A line of (optionally styled) text for printing to a TTY.
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -95,7 +96,7 @@ impl Line {
 
     /// Returns the number of characters in the line.
     pub fn len(&self) -> usize {
-        self.plaintext().len()
+        self.plaintext().graphemes(true).count()
     }
 
     /// Pads the end of th eline with spaces to the given `width`.

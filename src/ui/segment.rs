@@ -2,6 +2,7 @@ use crate::ui::segment::Color::*;
 use bitflags::bitflags;
 use ibig::{IBig, UBig};
 use termion::{color, style};
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Default)]
 pub enum Color {
@@ -82,7 +83,7 @@ impl Segment {
 
     pub fn len(&self) -> usize {
         // can't use String::len() because that returns the number of bytes
-        self.content.chars().count()
+        self.content.graphemes(true).count()
     }
 
     pub fn print(&self) {

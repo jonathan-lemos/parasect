@@ -233,7 +233,7 @@ pub fn assert_higher_order_wait_after<A, B, C>(
 {
     let v = thread::scope(|scope| {
         let handle = scope.spawn(|| task.wait());
-        inner.block_for_wait(Duration::from_secs(3), ".wait() never returned");
+        inner.block_for_notify(Duration::from_secs(3), ".notify() never returned");
         inner.send(value);
 
         handle.join().unwrap()
@@ -282,7 +282,7 @@ where
 {
     thread::scope(|scope| {
         let handle = scope.spawn(|| task.wait());
-        inner.block_for_wait(Duration::from_secs(3), ".wait() was never called");
+        inner.block_for_notify(Duration::from_secs(3), ".notify() was never called");
         inner.request_cancellation();
 
         handle.join().unwrap();

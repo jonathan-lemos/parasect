@@ -28,6 +28,10 @@ impl TerminalScreen {
         );
         TerminalScreen {}
     }
+
+    pub fn output_is_tty() -> bool {
+        return termion::terminal_size().is_ok();
+    }
 }
 
 impl Drop for TerminalScreen {

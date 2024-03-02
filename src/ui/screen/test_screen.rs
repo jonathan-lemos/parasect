@@ -5,10 +5,12 @@ use crate::ui::segment::{Attributes, Color, Segment};
 use crate::util::macros::unwrap_or;
 use std::cmp::min;
 use std::collections::VecDeque;
+use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Hash)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone, Hash)]
 struct CellState {
-    pub char: Option<char>,
+    // String because of bullshit where a letter may be composed of more than one char
+    pub char: Option<String>,
     pub color: Color,
     pub attributes: Attributes,
 }
@@ -46,7 +48,7 @@ impl TestScreen {
         }
     }
 
-    fn append_char(&mut self, char: char, color: Color, attributes: Attributes) {
+    fn append_char(&mut self, char: &str, color: Color, attributes: Attributes) {
         let cell_ptr = if self.cursor_pos < self.screen_state.len() {
             self.screen_state.get_mut(self.cursor_pos).unwrap()
         } else {
@@ -56,7 +58,7 @@ impl TestScreen {
         };
 
         *cell_ptr = CellState {
-            char: Some(char),
+            char: Some(char.to_string()),
             color,
             attributes,
         };
@@ -82,7 +84,12 @@ impl TestScreen {
         }
 
         let delta = old_dimensions.size() - dimensions.size();
-        self.screen_state = self.screen_state.iter().skip(delta).map(|x| *x).collect()
+        self.screen_state = self
+            .screen_state
+            .iter()
+            .skip(delta)
+            .map(|x| x.clone())
+            .collect()
     }
 
     /// Gets a list of lines corresponding to what the screen currently looks like.
@@ -96,7 +103,11 @@ impl TestScreen {
                     let cell = self.screen_state.get(pos).unwrap();
 
                     Segment::new(
-                        cell.char.unwrap_or(' ').to_string(),
+                        cell.char
+                            .as_ref()
+                            .map(|x| x.as_str())
+                            .unwrap_or(" ")
+                            .to_string(),
                         cell.color,
                         cell.attributes,
                     )
@@ -110,7 +121,7 @@ impl TestScreen {
 impl Screen for TestScreen {
     fn append_line(&mut self, line: &Line) {
         for seg in line.iter() {
-            for char in seg.content().chars() {
+            for char in seg.content().graphemes(true) {
                 self.append_char(char, seg.color(), seg.attributes());
             }
         }

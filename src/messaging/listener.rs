@@ -37,8 +37,8 @@ where
 
 fn receiver_loop_closure<'a, B: Into<ListenerBehavior> + 'a, T: Send + 'a>(
     receiver: Receiver<T>,
-    payload: impl Fn(T) -> B + Send + 'a,
-) -> (impl Fn(), Sender<()>) {
+    mut payload: impl FnMut(T) -> B + Send + 'a,
+) -> (impl FnMut(), Sender<()>) {
     let (cancel_sender, cancel_receiver) = bounded(1);
 
     (
@@ -69,7 +69,7 @@ where
     /// Terminates on `stop()`, if receiving fails, if the payload returns `StopProcessing`, or when the `Listener` is dropped.
     pub fn spawn<B: Into<ListenerBehavior> + 'static>(
         receiver: Receiver<T>,
-        payload: impl Fn(T) -> B + Send + 'static,
+        payload: impl FnMut(T) -> B + Send + 'static,
     ) -> Self {
         let (closure, cancel_sender) = receiver_loop_closure(receiver, payload);
 
@@ -93,7 +93,7 @@ where
     pub fn spawn_scoped<'env: 'a, B: Into<ListenerBehavior> + 'a>(
         scope: &'a Scope<'a, 'env>,
         receiver: Receiver<T>,
-        payload: impl Fn(T) -> B + Send + 'a,
+        payload: impl FnMut(T) -> B + Send + 'a,
     ) -> Self {
         let (closure, cancel_sender) = receiver_loop_closure(receiver, payload);
 

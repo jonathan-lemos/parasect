@@ -50,7 +50,7 @@ where
 
 impl<'a, T, M> Mailbox<'a> for OnceMailbox<'a, T, M>
 where
-    T: Send + Sync + 'a,
+    T: Send + 'a,
     M: Mailbox<'a, Message = T> + Sync,
 {
     type Message = T;

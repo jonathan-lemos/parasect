@@ -19,27 +19,19 @@ impl Ui {
         event_receiver: Receiver<Event>,
         no_tty: bool,
     ) -> Self {
-        if no_tty {
+        if no_tty || !TerminalScreen::output_is_tty() {
             NoTty(NoTtyUi::start(
                 initial_range,
                 title.plaintext(),
                 event_receiver,
             ))
         } else {
-            TtyUi::start(
+            Tty(TtyUi::start(
                 initial_range.clone(),
                 title.clone(),
                 event_receiver.clone(),
                 TerminalScreen::new(),
-            )
-            .map(Tty)
-            .unwrap_or_else(|| {
-                NoTty(NoTtyUi::start(
-                    initial_range,
-                    title.plaintext(),
-                    event_receiver,
-                ))
-            })
+            ))
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::ui::line::Line;
+use std::sync::{Arc, Mutex};
 
 /// Represents a size in 2-dimensional space.
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone)]
@@ -70,4 +71,26 @@ pub trait Screen {
 
     /// Clears the screen, and resets the cursor to (0, 0).
     fn reset(&mut self);
+}
+
+impl<S: Screen> Screen for Arc<Mutex<S>> {
+    fn append_line(&mut self, line: &Line) {
+        self.lock().unwrap().append_line(line)
+    }
+
+    fn dimensions(&self) -> Dimensions {
+        self.lock().unwrap().dimensions()
+    }
+
+    fn move_cursor(&mut self, row: usize, col: usize) {
+        self.lock().unwrap().move_cursor(row, col)
+    }
+
+    fn newline(&mut self) {
+        self.lock().unwrap().newline()
+    }
+
+    fn reset(&mut self) {
+        self.lock().unwrap().reset()
+    }
 }

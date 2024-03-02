@@ -65,6 +65,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::messaging::mailbox::Mailbox;
     use crate::test_util::test_util::test_util::wait_for_condition;
     use crossbeam_channel::unbounded;
     use std::ops::{Deref, DerefMut};
@@ -91,7 +92,8 @@ mod tests {
         });
 
         assert!(l.active());
-        s.send(2).unwrap();
+        s.send_msg(2);
+        s.send_msg(3);
         wait_for_listener_death(&l);
 
         assert_eq!(mtx.lock().unwrap().deref(), &2);
@@ -122,7 +124,8 @@ mod tests {
             });
 
             assert!(l.active());
-            s.send(2).unwrap();
+            s.send_msg(2);
+            s.send_msg(3);
             wait_for_listener_death(&l);
         });
 
