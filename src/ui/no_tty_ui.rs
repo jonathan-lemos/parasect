@@ -31,13 +31,10 @@ impl NoTtyUi {
                     "[Thread {}] Finished processing point {}, aborting parasect execution for reason: {}.",
                     wm.thread_id, wm.point, msg
                 ),
-                Cancelled => {
-                    println!("cancelled message received");
-                    format!(
-                        "[Thread {}] Cancelled processing point {} because it is in a range that has been eliminated.",
-                        wm.thread_id, wm.point
-                    )
-                },
+                Cancelled => format!(
+                    "[Thread {}] Cancelled processing point {} because it is in a range that has been eliminated.",
+                    wm.thread_id, wm.point
+                ),
             }
             RangeInvalidated(range, answer) => format!(
                 "Eliminating range {}. It is known {}.",
