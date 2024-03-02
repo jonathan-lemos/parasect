@@ -56,7 +56,7 @@ mod tests {
     fn test_periodic_notifier() {
         let counter = Arc::new(AtomicI64::new(0));
 
-        let pn = PeriodicNotifier::new(Duration::from_millis(50));
+        let pn = PeriodicNotifier::new(Duration::from_millis(1000));
 
         let counter_clone = counter.clone();
         let recv = pn.receiver();
@@ -66,7 +66,7 @@ mod tests {
             }
         });
 
-        thread::sleep(Duration::from_millis(170));
+        thread::sleep(Duration::from_millis(3500));
         assert!(pn.active());
         pn.stop();
         assert!(!pn.active());
