@@ -47,6 +47,7 @@ where
         );
     }
 
+    #[allow(unused)]
     pub fn block_for_cancel(&self, timeout: Duration, msg: impl ToString) {
         wait_for_condition(
             || self.cancel_called_times.load(Ordering::Relaxed) > 0,

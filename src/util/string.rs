@@ -1,3 +1,4 @@
+#[allow(unused)]
 pub fn truncate_elipsis(s: &str, width: usize) -> String {
     if s.len() <= width {
         s.to_string()

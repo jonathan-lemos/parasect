@@ -19,6 +19,8 @@ where
 
 pub trait CollectHashSet {
     type Item: Hash + Eq;
+
+    #[allow(unused)]
     fn collect_hashset(self) -> HashSet<Self::Item>;
 }
 

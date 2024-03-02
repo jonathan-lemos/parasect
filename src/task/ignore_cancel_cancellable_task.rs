@@ -27,6 +27,7 @@ where
     fn request_cancellation(&self) -> () {}
 }
 
+#[allow(unused)]
 impl<T, InnerTask> IgnoreCancelCancellableTask<T, InnerTask>
 where
     T: Send + Sync + Clone + 'static,

@@ -1,7 +1,6 @@
 use crate::messaging::listener::Listener;
 use crate::parasect::event::Event;
 use crate::parasect::event::Event::*;
-use crate::parasect::types::ParasectPayloadAnswer::*;
 use crate::parasect::types::ParasectPayloadResult::*;
 use crate::parasect::worker::PointCompletionMessageType::*;
 use crate::range::numeric_range::NumericRange;
@@ -69,6 +68,7 @@ impl NoTtyUi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parasect::types::ParasectPayloadAnswer::*;
     use crate::parasect::worker::WorkerMessage;
     use crate::test_util::test_util::test_util::{ib, r};
 

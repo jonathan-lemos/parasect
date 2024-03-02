@@ -18,6 +18,7 @@ impl Dimensions {
     /// `(coord_to_pos . pos_to_coord) == id`, if the given coord is in range.
     ///
     /// No checking is done to ensure that the returned position is within the dimensions.
+    #[allow(unused)]
     pub fn coord_to_pos(&self, coord: (usize, usize)) -> usize {
         coord.0 * self.width + coord.1
     }
@@ -25,6 +26,7 @@ impl Dimensions {
     /// Turns a scalar quantity (0-indexed) into a coordinate, if in range.
     ///
     /// The coordinate is (row, column) and 0-indexed.
+    #[allow(unused)]
     pub fn pos_to_coord(&self, pos: usize) -> Option<(usize, usize)> {
         let row = pos / self.width;
         let col = pos % self.width;
@@ -37,6 +39,7 @@ impl Dimensions {
     }
 
     /// Returns the amount of cells in the area represented by the `Dimensions`.
+    #[allow(unused)]
     pub fn size(&self) -> usize {
         self.height * self.width
     }

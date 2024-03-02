@@ -11,6 +11,7 @@ where
     mailbox: Sender<T>,
 }
 
+#[allow(unused)]
 impl<T> Actor<'static, T>
 where
     T: Send + 'static,
@@ -26,6 +27,7 @@ where
     }
 }
 
+#[allow(unused)]
 impl<'a, T> Actor<'a, T>
 where
     T: Send + 'a,

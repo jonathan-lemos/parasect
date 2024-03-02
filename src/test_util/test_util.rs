@@ -5,12 +5,6 @@ pub mod test_util {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    pub fn detect_flake(mut f: impl FnMut() -> ()) {
-        for _ in 0..5000 {
-            f();
-        }
-    }
-
     pub fn ib(n: impl Into<IBig>) -> IBig {
         n.into()
     }

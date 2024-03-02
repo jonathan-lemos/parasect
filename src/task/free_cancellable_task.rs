@@ -36,6 +36,7 @@ where
     }
 }
 
+#[allow(unused)]
 impl<T> FreeCancellableTask<T>
 where
     T: Send + Sync + Clone + 'static,

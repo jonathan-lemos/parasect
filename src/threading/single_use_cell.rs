@@ -15,6 +15,7 @@ impl<T> SingleUseCell<T> {
     }
 
     /// Makes a new `SingleUseCell` holding no value.
+    #[allow(unused)]
     pub fn empty() -> Self {
         Self {
             inner: RwLock::new(UnsafeCell::new(None)),

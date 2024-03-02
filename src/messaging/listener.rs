@@ -1,7 +1,6 @@
 use crate::messaging::listener::ListenerBehavior::{ContinueProcessing, StopProcessing};
 use crate::messaging::listener::MaybeScopedJoinHandle::{NotScoped, Scoped};
-use crate::messaging::mailbox::Mailbox;
-use crossbeam_channel::{bounded, select, unbounded, Receiver, Sender};
+use crossbeam_channel::{bounded, select, Receiver, Sender};
 use std::marker::PhantomData;
 use std::thread;
 use std::thread::{JoinHandle, Scope, ScopedJoinHandle};
@@ -133,7 +132,9 @@ where
 mod tests {
     use super::*;
     use crate::collections::collect_collection::CollectVec;
+    use crate::messaging::mailbox::Mailbox;
     use crate::test_util::test_util::test_util::wait_for_condition;
+    use crossbeam_channel::unbounded;
     use std::ops::Deref;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;

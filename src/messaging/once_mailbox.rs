@@ -39,6 +39,7 @@ where
     /// Wraps the given `Mailbox` in a `OnceMailbox` s.t. it can only take one message.
     ///
     /// If the `Mailbox` has been cloned, this function does not prevent the original `Mailbox` from receiving messages through its clones.
+    #[allow(unused)]
     pub fn wrap(inner: M) -> Self {
         Self {
             _t: PhantomData,

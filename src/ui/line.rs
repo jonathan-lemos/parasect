@@ -41,11 +41,13 @@ impl Line {
     }
 
     /// Returns a line that clears the given width.
+    #[allow(unused)]
     pub fn blank(width: usize) -> Self {
         Self::from(" ".repeat(width))
     }
 
     /// Returns an empty line. It has no effect when printed.
+    #[allow(unused)]
     pub fn empty() -> Self {
         Self::new([])
     }

@@ -1,4 +1,4 @@
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -36,6 +36,7 @@ impl PeriodicNotifier {
         self.recv.clone()
     }
 
+    #[allow(unused)]
     pub fn active(&self) -> bool {
         !self.cancelled.load(Ordering::SeqCst)
     }

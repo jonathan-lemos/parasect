@@ -318,13 +318,13 @@ mod tests {
             let a = AsyncValue::new();
 
             thread::scope(|scope| {
-                scope.spawn(|| a.send(69));
-                scope.spawn(|| a.send(69));
-                scope.spawn(|| a.send(69));
-                scope.spawn(|| a.send(69));
+                scope.spawn(|| a.send(i));
+                scope.spawn(|| a.send(i));
+                scope.spawn(|| a.send(i));
+                scope.spawn(|| a.send(i));
             });
 
-            assert_eq!(a.wait(), 69);
+            assert_eq!(a.wait(), i);
         }
 
         #[test]

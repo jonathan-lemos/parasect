@@ -44,7 +44,7 @@ impl Display for SubprocessError {
 pub struct CancellableSubprocess {
     child: Arc<SharedChild>,
     msg: Arc<AsyncValue<Option<Result<SubprocessOutput, SubprocessError>>>>,
-    thread: JoinHandle<()>,
+    _thread: JoinHandle<()>,
 }
 
 impl CancellableSubprocess {
@@ -92,7 +92,11 @@ impl CancellableSubprocess {
             })
         };
 
-        let ret = Self { child, msg, thread };
+        let ret = Self {
+            child,
+            msg,
+            _thread: thread,
+        };
 
         Ok(ret)
     }

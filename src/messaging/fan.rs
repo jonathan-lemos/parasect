@@ -52,6 +52,7 @@ impl<'a, T> Fan<'a, T>
 where
     T: Send + Clone + 'a,
 {
+    #[allow(unused)]
     pub fn new_scoped<'env: 'a>(scope: &'a Scope<'a, 'env>, receiver: Receiver<T>) -> Self {
         let (closure, outputs) = instantiation_closure::<'a>();
 

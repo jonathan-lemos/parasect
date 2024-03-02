@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_once_listener_stop() {
-        let (s, r) = unbounded();
+        let (_s, r) = unbounded();
 
         let l = OnceListener::spawn(r, |_: ()| {
             panic!("Should not run OnceListener body.");
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_once_listener_scoped_stop() {
-        let (s, r) = unbounded();
+        let (_s, r) = unbounded();
 
         thread::scope(|scope| {
             let l = OnceListener::spawn_scoped(scope, r, |_: ()| {

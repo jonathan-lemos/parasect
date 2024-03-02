@@ -88,6 +88,7 @@ impl BisectingRangeQueue {
     /// Returns `true` if the given range was invalidated, `false` if not.
     ///
     /// An empty range is always invalid.
+    #[allow(unused)]
     pub fn range_invalidated(&self, range: &NumericRange) -> bool {
         self.invalid.read().unwrap().contains_range(range)
     }

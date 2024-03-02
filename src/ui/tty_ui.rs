@@ -1,4 +1,3 @@
-use crate::collections::collect_collection::CollectVec;
 use crate::messaging::fan::Fan;
 use crate::messaging::listener::Listener;
 use crate::messaging::periodic_notifier::PeriodicNotifier;
@@ -11,9 +10,6 @@ use crate::ui::screen::line_printer::LinePrinter;
 use crate::ui::screen::screen::{Dimensions, Screen};
 use crate::ui::ui_component::UiComponent;
 use crossbeam_channel::Receiver;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 struct TtyPrinter<S: Screen> {
@@ -125,6 +121,7 @@ impl Drop for TtyUi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::collections::collect_collection::CollectVec;
     use crate::messaging::mailbox::Mailbox;
     use crate::parasect::event::Event::{RangeInvalidated, WorkerMessageSent};
     use crate::parasect::types::ParasectPayloadAnswer::{Bad, Good};
@@ -136,7 +133,8 @@ mod tests {
     use crate::ui::screen::test_screen::TestScreen;
     use crate::ui::segment::{Attributes, Color};
     use crossbeam_channel::unbounded;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
 
     #[test]
     fn test_render_screen_1() {
@@ -174,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_print_frame_start() {
-        let (send, recv) = unbounded();
+        let (_send, recv) = unbounded();
         let screen = Arc::new(Mutex::new(TestScreen::new((8, 10))));
 
         let mut tty_printer = TtyPrinter::new(
@@ -204,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_print_frame_rerender() {
-        let (send, recv) = unbounded();
+        let (_send, recv) = unbounded();
         let screen = Arc::new(Mutex::new(TestScreen::new((8, 10))));
 
         let mut tty_printer = TtyPrinter::new(

@@ -2,7 +2,7 @@ use crate::messaging::mailbox::Mailbox;
 use crate::messaging::once_listener::OnceListener;
 use crate::messaging::once_mailbox::OnceMailbox;
 use crate::threading::single_use_cell::SingleUseCell;
-use crossbeam_channel::{unbounded, Sender};
+use crossbeam_channel::Sender;
 use std::thread::Scope;
 
 pub struct OnceActor<'a, T>
@@ -37,6 +37,7 @@ impl<'a, T> OnceActor<'a, T>
 where
     T: Send + 'a,
 {
+    #[allow(unused)]
     pub fn spawn_scoped<'env: 'a>(
         scope: &'a Scope<'a, 'env>,
         payload: impl Fn(T) + Send + 'a,
@@ -56,6 +57,7 @@ where
         self.listener.stop()
     }
 
+    #[allow(unused)]
     pub fn active(&self) -> bool {
         self.listener.active()
     }
@@ -126,7 +128,7 @@ mod tests {
     #[test]
     fn test_actor_scoped_stop() {
         thread::scope(|scope| {
-            let actor = Arc::new(OnceActor::spawn(|_: ()| {}));
+            let actor = Arc::new(OnceActor::spawn_scoped(scope, |_: ()| {}));
 
             assert!(actor.active());
             actor.stop();

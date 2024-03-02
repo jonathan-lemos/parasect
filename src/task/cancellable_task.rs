@@ -11,6 +11,7 @@ where
     T: Send + Sync + Clone + 'static,
 {
     /// Ignores any .request_cancellation() calls on the CancellableTask.
+    #[allow(unused)]
     fn ignoring_cancellations(self) -> IgnoreCancelCancellableTask<T, Self>
     where
         Self: Sized,
