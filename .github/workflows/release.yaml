@@ -3,10 +3,29 @@ on:
   push:
     tags:
       - "v*.*.*"
-
+permissions:
+  contents: write
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    name: Build release binary
+
+    strategy:
+      fail-fast: true
+      matrix:
+        job:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+
+    runs-on: ${{ matrix.job.runner }}
 
     steps:
       - name: Checkout
@@ -16,15 +35,44 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
+          target: ${{ matrix.job.target }}
           override: true
 
       - name: Build release binary
         uses: actions-rs/cargo@v1
         with:
+          use-cross: true
           command: build
-          args: --release
+          args: --release --target=${{ matrix.job.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.job.target }}
+          path: target/${{ matrix.job.target }}/release/parasect
+
+  release:
+    name: Create release
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+
+      - name: Rename binaries
+        run: |
+          mv ./binary-x86_64-unknown-linux-gnu/parasect ./parasect-x86_64-unknown-linux-gnu
+          mv ./binary-aarch64-unknown-linux-gnu/parasect ./parasect-aarch64-unknown-linux-gnu
+          mv ./binary-x86_64-apple-darwin/parasect ./parasect-x86_64-apple-darwin
+          mv ./binary-aarch64-apple-darwin/parasect ./parasect-aarch64-apple-darwin
 
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: target/release/parasect
+          files: |
+            ./parasect-x86_64-unknown-linux-gnu
+            ./parasect-aarch64-unknown-linux-gnu
+            ./parasect-x86_64-apple-darwin
+            ./parasect-aarch64-apple-darwin

@@ -36,8 +36,8 @@ impl TerminalScreen {
 
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
-        self.reset();
         print!("{}", termion::cursor::Show);
+        println!();
         let mut instantiated_lock = match INSTANTIATED.lock() {
             Ok(l) => l,
             // if the mutex is poisoned, there's no point in changing its value
