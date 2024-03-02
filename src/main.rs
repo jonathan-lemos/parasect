@@ -71,6 +71,7 @@ fn execute(args: &CliArgs) -> ExitCode {
     };
 
     print_lines(lines.iter());
+    println!();
 
     ret
 }

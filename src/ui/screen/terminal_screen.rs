@@ -36,7 +36,7 @@ impl TerminalScreen {
 
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
-        print!("{}", termion::cursor::Restore);
+        print!("{}", termion::cursor::Show);
         let mut instantiated_lock = match INSTANTIATED.lock() {
             Ok(l) => l,
             // if the mutex is poisoned, there's no point in changing its value
@@ -53,7 +53,7 @@ impl Screen for TerminalScreen {
 
     fn dimensions(&self) -> Dimensions {
         termion::terminal_size()
-            .map(|(x, y)| (x as usize, y as usize))
+            .map(|(x, y)| (y as usize, x as usize))
             .unwrap_or((0, 0))
             .into()
     }
@@ -61,7 +61,7 @@ impl Screen for TerminalScreen {
     fn move_cursor(&mut self, row: usize, col: usize) {
         print!(
             "{}",
-            termion::cursor::Goto((row as u16) + 1, (col as u16) + 1)
+            termion::cursor::Goto((col as u16) + 1, (row as u16) + 1)
         );
     }
 
