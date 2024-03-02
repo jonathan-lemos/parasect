@@ -36,6 +36,7 @@ impl TerminalScreen {
 
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
+        self.reset();
         print!("{}", termion::cursor::Show);
         let mut instantiated_lock = match INSTANTIATED.lock() {
             Ok(l) => l,

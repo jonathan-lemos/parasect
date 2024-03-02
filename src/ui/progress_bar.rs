@@ -11,6 +11,7 @@ use crate::ui::segment::{Attributes, Color, Segment};
 use crate::ui::ui_component::UiComponent;
 use crate::util::macros::unwrap_or;
 use crossbeam_channel::Receiver;
+use ibig::UBig;
 use std::sync::{Arc, RwLock};
 
 /// Displays the progress of the parasect based on state inferred from the given event stream.
@@ -103,6 +104,25 @@ fn range_color(
     }
 }
 
+fn bound_partition_to_width(bounds: &NumericRange, width: usize) -> Vec<NumericRange> {
+    if bounds.len() >= UBig::from(width) {
+        bounds.partition(width)
+    } else {
+        let mut ret = Vec::new();
+
+        let wparts = NumericRange::from_endpoints_excluding_end(0, width)
+            .partition(usize::try_from(bounds.len()).unwrap());
+
+        for (num, part) in bounds.iter().zip(wparts) {
+            for _ in 0..usize::try_from(part.len()).unwrap() {
+                ret.push(NumericRange::from_point(num.clone()));
+            }
+        }
+
+        ret
+    }
+}
+
 fn render_color_bar(
     good_ranges: &NumericRangeSet,
     bad_ranges: &NumericRangeSet,
@@ -110,7 +130,7 @@ fn render_color_bar(
     active: &NumericRangeSet,
     width: usize,
 ) -> Line {
-    let partitions = bounds.partition(width);
+    let partitions = bound_partition_to_width(bounds, width);
 
     let segments = partitions.into_iter().map(|r| {
         let color = range_color(good_ranges, bad_ranges, &r);
@@ -194,6 +214,8 @@ mod tests {
     use crate::ui::line::mkline;
     use crossbeam_channel::unbounded;
     use ibig::IBig;
+    use proptest::prelude::*;
+    use proptest::proptest;
     use std::thread;
     use std::time::Duration;
 
@@ -470,5 +492,44 @@ mod tests {
         assert_contents_eq(&pb.bad_ranges, [r(20, 39)]);
         assert_contents_eq(&pb.good_ranges, [r(0, 15)]);
         assert_contents_eq(&pb.valid_ranges, [r(16, 19)]);
+    }
+
+    #[test]
+    fn test_bound_partition_snug() {
+        let bounds = r(0, 4);
+
+        assert_eq!(
+            bound_partition_to_width(&bounds, 5),
+            vec![r(0, 0), r(1, 1), r(2, 2), r(3, 3), r(4, 4)]
+        )
+    }
+
+    #[test]
+    fn test_bound_partition_thicc() {
+        let bounds = r(0, 16);
+
+        assert_eq!(
+            bound_partition_to_width(&bounds, 5),
+            vec![r(0, 3), r(4, 7), r(8, 10), r(11, 13), r(14, 16)]
+        )
+    }
+
+    #[test]
+    fn test_bound_partition_thin() {
+        let bounds = r(0, 2);
+
+        assert_eq!(
+            bound_partition_to_width(&bounds, 5),
+            vec![r(0, 0), r(0, 0), r(1, 1), r(1, 1), r(2, 2)]
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn test_bound_partition_equals_width(a in 1..2000, b in 1..2000, c in 1..1000usize) {
+            prop_assume!(a < b);
+
+            assert_eq!(bound_partition_to_width(&r(a, b), c).len(), c);
+        }
     }
 }
